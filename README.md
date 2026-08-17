@@ -2,7 +2,7 @@
 
 # 🔌 Cursor 自定义模型直连方案
 
-### 让 Cursor 白嫖 DeepSeek / GLM / Kimi / 任意 OpenAI 兼容模型
+### 用自己的 API Key，让 Cursor 直连 DeepSeek / GLM / Kimi / 任意 OpenAI 兼容模型
 ### Agent · Cmd+K · 工具调用 · MCP 全保留，体验 100% 原生
 
 [![version](https://img.shields.io/badge/version-1.6.1-blue?style=flat-square)](https://github.com/zhouruichen2015-pixel/cursor-custom-models/releases)
