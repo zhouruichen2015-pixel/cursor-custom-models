@@ -149,15 +149,15 @@ GLM 用户：先运行 `node cors-proxy.js https://open.bigmodel.cn 8117`，conf
 
 | 文件 | 用途 |
 |------|------|
-| `install.bat` / `patch.ps1` | **一键打补丁**（幂等，自动备份 + 语法校验 + 失败自动回滚 + product.json 校验和维护） |
-| `restore.bat` / `restore.ps1` | **一键还原原版**（版本降级保护 + 备份完整性校验） |
-| `status.bat` | 查看补丁/配置状态 |
-| `test.bat` / `test-integration.js` | 34 项集成测试（mock SSE + protobuf-es v2 类型模拟，含双通道工具循环与纯透传断言） |
-| `glm-proxy.bat` / `cors-proxy.js` | GLM 用户启动本地 CORS 代理 |
+| `安装.bat` / `patch.ps1` | **一键打补丁**（幂等，自动备份 + 语法校验 + 失败自动回滚 + product.json 校验和维护） |
+| `还原.bat` / `restore.ps1` | **一键还原原版**（版本降级保护 + 备份完整性校验） |
+| `状态.bat` | 查看补丁/配置状态 |
+| `测试.bat` / `test-integration.js` | 34 项集成测试（mock SSE + protobuf-es v2 类型模拟，含双通道工具循环与纯透传断言） |
+| `GLM代理.bat` / `cors-proxy.js` | GLM 用户启动本地 CORS 代理 |
 | `config.json` | 用户配置（API 地址/Key/模型映射/拦截列表） |
 | `cm-runtime.js` | 注入到 Cursor 的运行时代码模板 |
 | `cdp-e2e.js` / `stats.js` | CDP 端到端实测与运行时状态读取（开发调试用，普通用户无需） |
-| `QUICKSTART.md` | 三步快速开始（中文） |
+| `快速入门.md` | 三步快速开始（中文） |
 
 ## 四、使用步骤
 
@@ -202,7 +202,7 @@ GLM 用户：先运行 `node cors-proxy.js https://open.bigmodel.cn 8117`，conf
 
 ### 4.2 打补丁
 ```powershell
-cd <项目目录>   # 即 patch.ps1 所在目录（或直接双击 install.bat）
+cd <项目目录>   # 即 patch.ps1 所在目录（或直接双击 安装.bat）
 # 编辑 config.json 填入真实 key 后：
 powershell -ExecutionPolicy Bypass -File .\patch.ps1
 ```

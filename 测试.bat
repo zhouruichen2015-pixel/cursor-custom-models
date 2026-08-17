@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ============================================
-echo  Cursor Custom Models - 集成测试 (28项, 无需真实Key)
+echo  Cursor Custom Models - 集成测试 (34项, 无需真实Key)
 echo ============================================
 where node >nul 2>nul
 if errorlevel 1 (
