@@ -9,6 +9,9 @@ release/
 *.zip
 *.log
 
+# Local reverse-engineering dev tools (protocol probing against installed Cursor)
+probe-*.js
+
 # OS junk
 Thumbs.db
 Desktop.ini

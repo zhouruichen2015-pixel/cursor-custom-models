@@ -20,6 +20,7 @@
   "sendReasoningAsText": false,
   "blockUsageGate": true,
   "agentTools": true,
+  "agentSystemPrompt": "",
   "agentToolTimeoutMs": 30000,
   "agentMaxToolRounds": 8,
   "agentContext": {

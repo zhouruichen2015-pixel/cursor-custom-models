@@ -1,11 +1,26 @@
 /* ============================================================
- * Cursor Custom Models Runtime v1.5.1
+ * Cursor Custom Models Runtime v1.6.1
  * 由 patch.ps1 注入到三个文件末尾（同一份代码，各自进程内独立运行）:
  *   workbench.desktop.main.js / workbench.glass.main.js (渲染进程)
- *   extensionHostProcess.js (扩展主机 — HTTP 真正终止点)
+ *   extensionHostProcess.js (扩展主机 - HTTP 真正终止点)
  * 拦截 ConnectRPC 传输层，将 Chat/CmdK/Agents 请求转发到
  * 用户配置的 OpenAI 兼容 API（DeepSeek / GLM 等）
  *
+ * v1.6.1: 系统提示词纯透传 -- 只有模型走自定义, 不添加任何自写文案:
+ *         删除自造角色提示词与工具可调用 Note 声明, 移除行为性标题后缀,
+ *         系统消息仅含 Cursor 客户端收集的原文数据(env/.cursorrules/
+ *         仓库/目录树/MCP 指令) + 请求内 customSystemPrompt 原文;
+ *         新增 agentSystemPrompt 配置(默认空)供用户自行注入基础提示词
+ * v1.6.0: 打通全部工具通道 -- agent.v1(Agents 界面)扩展为 8 内置工具
+ *         (read_file/grep_search/list_dir/write_file/run_terminal_cmd/
+ *          web_fetch/delete_file/read_lints) + MCP 动态工具(按
+ *         requestContext.tools 注册 schema, 经 mcpArgs map<string,Value>
+ *         下发, 客户端本地执行); Chat 界面(BiDi 通道)新增 Cursor 原生
+ *         UI 级工具循环 client_side_tool_v2_call(READ_FILE_V2/
+ *         RIPGREP_SEARCH/LIST_DIR_V2/GLOB_FILE_SEARCH/DELETE_FILE/
+ *         RUN_TERMINAL_COMMAND_V2/WEB_FETCH/CALL_MCP_TOOL), 结果经
+ *         clientSideToolV2Result 回传 role:"tool" 多轮闭环;
+ *         系统提示词动态声明可调用工具(移除 "NOT callable" 限制)
  * v1.5.1: 修复 requestContext 读取位置 -- 3.16.17 实测其嵌在
  *         action.userMessageAction.requestContext(非顶层 runRequest.requestContext),
  *         双位置兼容读取, 环境上下文真实流入系统提示词;
@@ -337,6 +352,7 @@
       if (!d) continue;
       if (d.conversation) merged.conversation = merged.conversation.concat(d.conversation);
       if (d.modelDetails) merged.modelDetails = d.modelDetails;
+      if (d.requestContext) merged.requestContext = d.requestContext;
     }
     return merged;
   }
@@ -454,12 +470,10 @@
     var ctx = CFG.agentContext || {};
     var parts = [];
     var rc = plan.requestContext;
-    // 基础角色提示词(对标 Cursor Agent 风格; 简洁以节省 token)
-    parts.push(
-      "You are an AI coding agent running inside the Cursor IDE (Agents mode), powered by a user-configured model.\n" +
-      "Be concise and precise. When editing code, produce complete, correct edits. " +
-      "Answer in the user's language. If context is missing, ask or inspect before assuming."
-    );
+    // 纯透传(v1.6.1): 不注入任何自写角色提示词, 系统消息只由
+    // Cursor 收集的原文数据 + 请求内 customSystemPrompt 组成;
+    // agentSystemPrompt 配置(默认空)是唯一可选的自定义入口
+    if (CFG.agentSystemPrompt) parts.push(String(CFG.agentSystemPrompt));
     // 环境信息(env)
     if (ctx.env !== false && rc && rc.env) {
       var e = rc.env;
@@ -483,7 +497,7 @@
           rl.push(String(rule.content) + tag);
         }
       }
-      if (rl.length) parts.push("# Project rules (must follow)\n" + rl.join("\n\n").slice(0, 20000));
+      if (rl.length) parts.push("# Project rules\n" + rl.join("\n\n").slice(0, 20000));
     }
     // 仓库信息
     if (ctx.repo !== false && rc && rc.repositoryInfo && rc.repositoryInfo.length) {
@@ -533,15 +547,12 @@
       if (mcpParts.length || toolDescs.length) {
         var seg2 = "# MCP integrations";
         if (mcpParts.length) seg2 += "\n" + mcpParts.join("\n").slice(0, 8000);
-        if (toolDescs.length) seg2 += "\n# MCP tools available\n" + toolDescs.join("\n");
-        seg2 += "\nNote: in this custom-model session the only tools you can actually invoke are: "
-          + (AGENT_TOOLS_ON ? Object.keys(AGENT_TOOL_MAP).join(", ") : "none")
-          + ". The MCP tools above are listed for context only and are NOT callable here.";
+        if (toolDescs.length) seg2 += "\n# MCP tools\n" + toolDescs.join("\n");
         parts.push(seg2);
       }
     }
-    // 用户自定义 system prompt(最高优先级, 放最后)
-    if (plan.customSystemPrompt) parts.push("# Custom system prompt\n" + plan.customSystemPrompt);
+    // 请求内 customSystemPrompt 原文透传(不加自写标题)
+    if (plan.customSystemPrompt) parts.push(String(plan.customSystemPrompt));
     return parts.join("\n\n").slice(0, 60000);
   }
 
@@ -560,16 +571,186 @@
   var AGENT_MAX_ROUNDS = CFG.agentMaxToolRounds || 8;
   // OpenAI 函数名 → agent.v1 映射(仅保留有独立 exec 通道的工具: glob/semantic 无 result 通道已移除)
   var AGENT_TOOL_MAP = {
-    read_file:   { caseName: "readToolCall", execCase: "readArgs", argKeys: { path: "path", offset: "offset", limit: "limit" } },
-    grep_search: { caseName: "grepToolCall", execCase: "grepArgs", argKeys: { pattern: "pattern", path: "path", glob: "glob", outputMode: "output_mode", contextBefore: "context_before", contextAfter: "context_after" } },
-    list_dir:    { caseName: "lsToolCall",   execCase: "lsArgs",   argKeys: { path: "path" } }
+    read_file:        { caseName: "readToolCall",       execCase: "readArgs",        argKeys: { path: "path", offset: "offset", limit: "limit" } },
+    grep_search:      { caseName: "grepToolCall",       execCase: "grepArgs",        argKeys: { pattern: "pattern", path: "path", glob: "glob", outputMode: "output_mode", contextBefore: "context_before", contextAfter: "context_after" } },
+    list_dir:         { caseName: "lsToolCall",         execCase: "lsArgs",          argKeys: { path: "path" } },
+    write_file:       { caseName: "editToolCall",       execCase: "writeArgs",       argKeys: { path: "path", fileText: "content" }, uiArgKeys: { path: "path", streamContent: "content" } },
+    run_terminal_cmd: { caseName: "shellToolCall",      execCase: "shellArgs",       argKeys: { command: "command", workingDirectory: "working_directory" } },
+    web_fetch:        { caseName: "fetchToolCall",      execCase: "fetchArgs",       argKeys: { url: "url" } },
+    delete_file:      { caseName: "deleteToolCall",     execCase: "deleteArgs",      argKeys: { path: "path" } },
+    read_lints:       { caseName: "readLintsToolCall",  execCase: "diagnosticsArgs", argKeys: { path: "path" }, uiArgKeys: { paths: "path" } }
   };
-  function agentToolSchemas() {
-    return [
+  var AGENT_MCP_ENTRY = { caseName: "mcpToolCall", execCase: "mcpArgs" };
+  function resolveAgentTool(name, mcpTools) {
+    if (Object.prototype.hasOwnProperty.call(AGENT_TOOL_MAP, name)) return { entry: AGENT_TOOL_MAP[name], mcp: null };
+    if (mcpTools && mcpTools.length) {
+      for (var i = 0; i < mcpTools.length; i++) {
+        var td = mcpTools[i];
+        if (td && td.name === name) return { entry: AGENT_MCP_ENTRY, mcp: td };
+      }
+    }
+    return null;
+  }
+  function wrapJsonValue(ValueT, v) {
+    try {
+      if (ValueT && typeof ValueT.wrap === "function") return ValueT.wrap(v);
+      if (ValueT && typeof ValueT.fromJson === "function") return ValueT.fromJson(v);
+    } catch (e) { /* fallthrough */ }
+    return v;
+  }
+  function isWellKnownJsonT(T) {
+    return !!(T && T.typeName && T.typeName.indexOf("google.protobuf.") === 0);
+  }
+  // 递归构造 protobuf partial: 按 T 的真实字段过滤/包装 JSON 值(well-known 类型用 wrap)
+  function partialFor(T, obj) {
+    var out = {};
+    for (var k in obj) {
+      var v = obj[k];
+      if (v === undefined || v === null) continue;
+      var f = findFieldDeep(T, k);
+      if (!f) continue;
+      if (f.kind === "map") {
+        var mo = {};
+        for (var mk in v) mo[mk] = (f.V && f.V.T) ? wrapJsonValue(f.V.T, v[mk]) : v[mk];
+        setField(out, f, mo);
+      } else if (f.kind === "message" && f.T) {
+        if (f.repeated) {
+          var arr = Array.isArray(v) ? v : [v];
+          var wa = [];
+          for (var ai = 0; ai < arr.length; ai++) {
+            var item = arr[ai];
+            wa.push(isWellKnownJsonT(f.T) ? wrapJsonValue(f.T, item) : new f.T(partialFor(f.T, item)));
+          }
+          setField(out, f, wa);
+        } else if (isWellKnownJsonT(f.T)) {
+          setField(out, f, wrapJsonValue(f.T, v));
+        } else {
+          setField(out, f, new f.T(partialFor(f.T, v)));
+        }
+      } else {
+        if (f.repeated && !Array.isArray(v)) v = [v];
+        setField(out, f, v);
+      }
+    }
+    return out;
+  }
+  // MCP 工具调用 args partial(按 ArgsT 真实字段填充, args map 值走 Value.wrap)
+  function buildMcpArgsPartial(ArgsT, callId, td, argsObj) {
+    var p = {};
+    if (findFieldDeep(ArgsT, "toolCallId")) p.toolCallId = callId;
+    if (td.name && findFieldDeep(ArgsT, "name")) p.name = td.name;
+    if (td.providerIdentifier && findFieldDeep(ArgsT, "providerIdentifier")) p.providerIdentifier = td.providerIdentifier;
+    if (td.toolName && findFieldDeep(ArgsT, "toolName")) p.toolName = td.toolName;
+    var f = findFieldDeep(ArgsT, "args");
+    if (f && f.kind === "map" && f.V && f.V.T) {
+      var mo = {};
+      for (var k in argsObj) mo[k] = wrapJsonValue(f.V.T, argsObj[k]);
+      p.args = mo;
+    }
+    return p;
+  }
+  // 解析 MCP inputSchemaJson -> OpenAI function parameters(异常兜底为开放 object)
+  function mcpToolParamsSchema(td) {
+    var raw = td.inputSchemaJson;
+    if (typeof raw === "string") { try { raw = JSON.parse(raw); } catch (e) { raw = null; } }
+    if (!raw || typeof raw !== "object") raw = {};
+    var p = { type: "object" };
+    if (raw.properties && typeof raw.properties === "object") p.properties = raw.properties;
+    if (Array.isArray(raw.required)) p.required = raw.required;
+    if (raw.additionalProperties !== undefined) p.additionalProperties = raw.additionalProperties;
+    if (!p.properties) { p.properties = {}; p.additionalProperties = true; }
+    return p;
+  }
+  function mcpToolSchemas(mcpTools, cap) {
+    var out = [];
+    if (!mcpTools || !mcpTools.length) return out;
+    var max = cap || 40;
+    for (var i = 0; i < mcpTools.length && out.length < max; i++) {
+      var td = mcpTools[i];
+      if (!td || !td.name) continue;
+      out.push({ type: "function", function: { name: td.name, description: String(td.description || ("MCP tool " + td.name)).slice(0, 600), parameters: mcpToolParamsSchema(td) } });
+    }
+    return out;
+  }
+  function agentToolSchemas(mcpTools) {
+    var defs = [
       { type: "function", function: { name: "read_file", description: "Read the contents of a file. Returns file content, optionally numbered lines.", parameters: { type: "object", properties: { path: { type: "string", description: "Absolute or workspace-relative file path" }, offset: { type: "integer", description: "Line number to start from (1-based, optional)" }, limit: { type: "integer", description: "Max number of lines to read (optional)" } }, required: ["path"] } } },
       { type: "function", function: { name: "grep_search", description: "Regex search across files in the workspace (ripgrep-powered). Use output_mode 'content' to see matching lines with line numbers, 'files_with_matches' to list files, 'count' for counts.", parameters: { type: "object", properties: { pattern: { type: "string", description: "Regular expression pattern" }, path: { type: "string", description: "File or directory to search in (optional, defaults to workspace)" }, glob: { type: "string", description: "Glob filter, e.g. '*.py' (optional)" }, output_mode: { type: "string", enum: ["content", "files_with_matches", "count"], description: "Output format (optional)" }, context_before: { type: "integer", description: "Lines of context before match (optional)" }, context_after: { type: "integer", description: "Lines of context after match (optional)" } }, required: ["pattern"] } } },
-      { type: "function", function: { name: "list_dir", description: "List immediate files and subdirectories of a directory.", parameters: { type: "object", properties: { path: { type: "string", description: "Directory path" } }, required: ["path"] } } }
+      { type: "function", function: { name: "list_dir", description: "List immediate files and subdirectories of a directory.", parameters: { type: "object", properties: { path: { type: "string", description: "Directory path" } }, required: ["path"] } } },
+      { type: "function", function: { name: "write_file", description: "Create or overwrite a file with the given full content.", parameters: { type: "object", properties: { path: { type: "string", description: "File path to write" }, content: { type: "string", description: "Full file content to write" } }, required: ["path", "content"] } } },
+      { type: "function", function: { name: "run_terminal_cmd", description: "Run a shell command in the workspace and return output. Use sparingly for build/test/git operations.", parameters: { type: "object", properties: { command: { type: "string", description: "Shell command to execute" }, working_directory: { type: "string", description: "Working directory (optional)" } }, required: ["command"] } } },
+      { type: "function", function: { name: "web_fetch", description: "Fetch a URL and return the page content.", parameters: { type: "object", properties: { url: { type: "string", description: "URL to fetch" } }, required: ["url"] } } },
+      { type: "function", function: { name: "delete_file", description: "Delete a file in the workspace.", parameters: { type: "object", properties: { path: { type: "string", description: "File path to delete" } }, required: ["path"] } } },
+      { type: "function", function: { name: "read_lints", description: "Read lint/diagnostic errors for a file.", parameters: { type: "object", properties: { path: { type: "string", description: "File path to inspect" } }, required: ["path"] } } }
     ];
+    return defs.concat(mcpToolSchemas(mcpTools));
+  }
+
+  /* ============================================================
+   * Chat 界面工具通道 (v1.6.0): aiserver.v1 clientSideToolV2Call
+   * StreamUnifiedChatWithTools(BiDi) 响应类型带 clientSideToolV2Call,
+   * 客户端本地执行后经请求流回传 clientSideToolV2Result。
+   * 编排: OpenAI tool_calls -> ClientSideToolV2Call(枚举 tool + params oneof)
+   *   -> 客户端执行 -> clientSideToolV2Result -> role:"tool" 回填 -> 下一轮
+   * ============================================================ */
+  var CHAT_TOOL_MAP = {
+    read_file:        { tool: "READ_FILE_V2",           paramsCase: "readFileV2Params",           map: { targetFile: "path", offset: "offset", limit: "limit" } },
+    grep_search:      { tool: "RIPGREP_SEARCH",         paramsCase: "ripgrepSearchParams",
+      build: function (a) { return { patternInfo: { pattern: String(a.pattern != null ? a.pattern : ""), isRegExp: a.is_reg_exp !== false, isCaseSensitive: !!a.is_case_sensitive } }; } },
+    list_dir:         { tool: "LIST_DIR_V2",            paramsCase: "listDirV2Params",            map: { targetDirectory: "path" } },
+    glob_search:      { tool: "GLOB_FILE_SEARCH",       paramsCase: "globFileSearchParams",        map: { targetDirectory: "path", globPattern: "pattern" } },
+    delete_file:      { tool: "DELETE_FILE",            paramsCase: "deleteFileParams",           map: { relativeWorkspacePath: "path" } },
+    run_terminal_cmd: { tool: "RUN_TERMINAL_COMMAND_V2", paramsCase: "runTerminalCommandV2Params",
+      build: function (a) { return { command: a.command, cwd: a.working_directory, requireUserApproval: true }; } },
+    web_fetch:        { tool: "WEB_FETCH",              paramsCase: "webFetchParams",             map: { url: "url" } }
+  };
+  var CHAT_MCP_CFG = { tool: "CALL_MCP_TOOL", paramsCase: "callMcpToolParams", mcp: true };
+  // 枚举成员存在性校验(不同版本协议成员集可能不同), MCP 工具按 td.name 精确匹配
+  function resolveChatTool(name, enumT, mcpTools) {
+    var cfg = Object.prototype.hasOwnProperty.call(CHAT_TOOL_MAP, name) ? CHAT_TOOL_MAP[name] : null;
+    if (cfg && enumT && enumT[cfg.tool] != null) return { cfg: cfg, mcp: null };
+    if (enumT && enumT.CALL_MCP_TOOL != null && mcpTools && mcpTools.length) {
+      for (var i = 0; i < mcpTools.length; i++) {
+        var td = mcpTools[i];
+        if (td && td.name === name) return { cfg: CHAT_MCP_CFG, mcp: td };
+      }
+    }
+    return null;
+  }
+  function chatToolSchemas(enumT, mcpTools) {
+    var defs = [
+      { type: "function", function: { name: "read_file", description: "Read the contents of a file. Returns file content, optionally numbered lines.", parameters: { type: "object", properties: { path: { type: "string", description: "Absolute or workspace-relative file path" }, offset: { type: "integer", description: "Line number to start from (1-based, optional)" }, limit: { type: "integer", description: "Max number of lines to read (optional)" } }, required: ["path"] } } },
+      { type: "function", function: { name: "grep_search", description: "Regex search across files in the workspace (ripgrep-powered). Use output_mode 'content' to see matching lines with line numbers, 'files_with_matches' to list files, 'count' for counts.", parameters: { type: "object", properties: { pattern: { type: "string", description: "Regular expression pattern" }, path: { type: "string", description: "File or directory to search in (optional, defaults to workspace)" }, glob: { type: "string", description: "Glob filter, e.g. '*.py' (optional)" }, output_mode: { type: "string", enum: ["content", "files_with_matches", "count"], description: "Output format (optional)" }, context_before: { type: "integer", description: "Lines of context before match (optional)" }, context_after: { type: "integer", description: "Lines of context after match (optional)" } }, required: ["pattern"] } } },
+      { type: "function", function: { name: "list_dir", description: "List immediate files and subdirectories of a directory.", parameters: { type: "object", properties: { path: { type: "string", description: "Directory path" } }, required: ["path"] } } },
+      { type: "function", function: { name: "glob_search", description: "Fast file pattern matching using glob patterns.", parameters: { type: "object", properties: { pattern: { type: "string", description: "Glob pattern, e.g. '**/*.py'" }, path: { type: "string", description: "Directory to search in (optional, defaults to workspace)" } }, required: ["pattern"] } } },
+      { type: "function", function: { name: "delete_file", description: "Delete a file in the workspace.", parameters: { type: "object", properties: { path: { type: "string", description: "File path to delete" } }, required: ["path"] } } },
+      { type: "function", function: { name: "run_terminal_cmd", description: "Run a shell command in the workspace and return output. Use sparingly for build/test/git operations.", parameters: { type: "object", properties: { command: { type: "string", description: "Shell command to execute" }, working_directory: { type: "string", description: "Working directory (optional)" } }, required: ["command"] } } },
+      { type: "function", function: { name: "web_fetch", description: "Fetch a URL and return the page content.", parameters: { type: "object", properties: { url: { type: "string", description: "URL to fetch" } }, required: ["url"] } } }
+    ];
+    var out = [];
+    for (var i = 0; i < defs.length; i++) {
+      var cfg = CHAT_TOOL_MAP[defs[i].function.name];
+      if (!enumT || (cfg && enumT[cfg.tool] != null)) out.push(defs[i]);
+    }
+    if (enumT && enumT.CALL_MCP_TOOL != null) out = out.concat(mcpToolSchemas(mcpTools));
+    return out;
+  }
+  // OpenAI args -> ClientSideToolV2Call.params oneof 成员 partial(JSON 形态, 后续经 partialFor 包装)
+  function chatParamsPartial(cfg, mcp, a) {
+    if (cfg.mcp) {
+      var p = {};
+      if (mcp.providerIdentifier) p.server = mcp.providerIdentifier;
+      if (mcp.toolName) p.toolName = mcp.toolName;
+      p.toolArgs = a;
+      return p;
+    }
+    if (typeof cfg.build === "function") return cfg.build(a);
+    var p2 = {};
+    for (var k in cfg.map) {
+      var v = a[cfg.map[k]];
+      if (v !== undefined && v !== null) p2[k] = v;
+    }
+    return p2;
   }
   function serializeToolResult(msg) {
     try { if (msg && msg.toJson) return JSON.stringify(msg.toJson()); } catch (e) { /* fallthrough */ }
@@ -577,25 +758,34 @@
   }
   // 构造 toolCallStarted/Completed 更新消息(全类型内省, 不依赖压缩变量名)
   // ap: {interField, interType, outerType}; field: Started/Completed 字段描述符
-  function buildAgentToolUpdate(ap, field, callId, openaiName, argsObj, resultMsg) {
+  function buildAgentToolUpdate(ap, field, callId, resolved, argsObj, resultMsg) {
     try {
       if (!field || !field.T) return null;
+      var entry = resolved && resolved.entry;
+      if (!entry) return null;
       var updT = field.T;
       var tcF = findFieldDeep(updT, "toolCall");
       if (!tcF || !tcF.T) return null;
       var ToolCallT = tcF.T;
-      var entry = AGENT_TOOL_MAP[openaiName];
-      if (!entry) return null;
       var caseF = findFieldDeep(ToolCallT, entry.caseName);
       if (!caseF || !caseF.T) return null;
       var CallT = caseF.T;
       var argsF = findFieldDeep(CallT, "args");
       var argsT = argsF && argsF.T;
       var argsPartial = {};
-      for (var k in entry.argKeys) {
-        var v = argsObj[entry.argKeys[k]];
-        if (v === undefined || v === null) continue;
-        if (!argsT || findFieldDeep(argsT, k)) argsPartial[k] = v; // 只填目标类型真实存在的字段
+      if (resolved.mcp && argsT) {
+        argsPartial = buildMcpArgsPartial(argsT, callId, resolved.mcp, argsObj);
+      } else {
+        var argKeys = entry.uiArgKeys || entry.argKeys; // UI 展示层 args 字段名可不同于 exec 通道
+        for (var k in argKeys) {
+          var v = argsObj[argKeys[k]];
+          if (v === undefined || v === null) continue;
+          if (!argsT || findFieldDeep(argsT, k)) {
+            var df = argsT && findFieldDeep(argsT, k);
+            if (df && df.repeated && !Array.isArray(v)) v = [v];
+            argsPartial[k] = v;
+          }
+        }
       }
       var callPartial = {};
       if (argsF) setField(callPartial, argsF, argsT ? new argsT(argsPartial) : argsPartial);
@@ -617,22 +807,30 @@
   // 构造 execServerMessage — 真正驱动客户端执行工具的指令通道(协议核心):
   // 客户端 exec 编排器只处理 execServerMessage(@26211965 源码实证),
   // toolCallStarted/Completed 仅是 UI 展示层。args 内 toolCallId 关联 call。
-  function buildExecServerUpdate(RespT, seqId, callId, openaiName, argsObj) {
+  function buildExecServerUpdate(RespT, seqId, callId, resolved, argsObj) {
     try {
+      var entry = resolved && resolved.entry;
+      if (!entry) return null;
       var fExec = findFieldDeep(RespT, "execServerMessage");
       if (!fExec || !fExec.T) return null;
       var ExecT = fExec.T;
-      var entry = AGENT_TOOL_MAP[openaiName];
-      if (!entry) return null;
       var caseF = findFieldDeep(ExecT, entry.execCase);
       if (!caseF || !caseF.T) return null;
       var ArgsT = caseF.T;
       var argsPartial = {};
-      if (findFieldDeep(ArgsT, "toolCallId")) argsPartial.toolCallId = callId;
-      for (var k in entry.argKeys) {
-        var v = argsObj[entry.argKeys[k]];
-        if (v === undefined || v === null) continue;
-        if (findFieldDeep(ArgsT, k)) argsPartial[k] = v;
+      if (resolved.mcp) {
+        argsPartial = buildMcpArgsPartial(ArgsT, callId, resolved.mcp, argsObj);
+      } else {
+        if (findFieldDeep(ArgsT, "toolCallId")) argsPartial.toolCallId = callId;
+        for (var k in entry.argKeys) {
+          var v = argsObj[entry.argKeys[k]];
+          if (v === undefined || v === null) continue;
+          if (findFieldDeep(ArgsT, k)) {
+            var df = findFieldDeep(ArgsT, k);
+            if (df.repeated && !Array.isArray(v)) v = [v];
+            argsPartial[k] = v;
+          }
+        }
       }
       var execPartial = { id: seqId, execId: callId };
       setField(execPartial, caseF, new ArgsT(argsPartial));
@@ -858,7 +1056,7 @@
         out = r1.messages;
       } else if (isBidi) {
         req = bidiToRequest(list);
-        meta = {};
+        meta = { chatReq: req };
         out = unifiedToMessages(req);
       } else {
         // ServerStreaming: 单条请求，可能被 clientChunk/streamUnifiedChatRequest 包装
@@ -873,6 +1071,9 @@
 
     // 响应发射器
     var emitter = resolveEmitter(RespT, 0);
+    // Chat 工具通道: BiDi 且响应链上存在 clientSideToolV2Call 时启用
+    var chatToolsPlan = (!isCmdK && !isAgentRun && isBidi && emitter && AGENT_TOOLS_ON)
+      ? resolveChatToolPath(emitter, RespT) : null;
     var cmdkPlan = null;
     if (isCmdK) {
       // CmdK: realResponse → editStart/editStream/editEnd | chat
@@ -949,7 +1150,12 @@
 
       var messages = info.messages.slice();
       var toolsOn = AGENT_TOOLS_ON && ap.toolStartedField && ap.toolCompletedField;
-      var tools = toolsOn ? agentToolSchemas() : null;
+      var mcpTools = [];
+      try {
+        mcpTools = (info.meta && info.meta.agentPlan && info.meta.agentPlan.requestContext
+          && info.meta.agentPlan.requestContext.tools) || [];
+      } catch (eMcp) { mcpTools = []; }
+      var tools = toolsOn ? agentToolSchemas(mcpTools) : null;
       var finalText = "";
       var watermark = collected.length; // 工具结果只从 watermark 之后匹配
       var callSeq = 0;
@@ -1013,7 +1219,7 @@
         }
 
         var calls = Object.keys(pending).map(function (k) { return pending[k]; })
-          .filter(function (c) { return c.name && AGENT_TOOL_MAP[c.name]; });
+          .filter(function (c) { return c.name && resolveAgentTool(c.name, mcpTools); });
         if (!calls.length || !toolsOn) break; // 纯文本回合 → 结束循环
 
         log("agent round", round + 1, "| tool calls:", calls.length, "(" + calls.map(function (c) { return c.name; }).join(",") + ")");
@@ -1033,9 +1239,11 @@
           try { argsObj = JSON.parse(c2.args || "{}"); } catch (eJ) { argsObj = {}; }
           // 三段式协议: 1) toolCallStarted(UI 展示) 2) execServerMessage(真实执行指令)
           // 3) 等待 execClientMessage 结果 → toolCallCompleted 收尾
-          var stMsg = buildAgentToolUpdate(ap, ap.toolStartedField, c2.id, c2.name, argsObj, null);
+          var resolved = resolveAgentTool(c2.name, mcpTools);
+          if (!resolved) continue;
+          var stMsg = buildAgentToolUpdate(ap, ap.toolStartedField, c2.id, resolved, argsObj, null);
           if (stMsg) yield stMsg;
-          var execMsg = buildExecServerUpdate(RespT, callSeq * 1000 + ci, c2.id, c2.name, argsObj);
+          var execMsg = buildExecServerUpdate(RespT, callSeq * 1000 + ci, c2.id, resolved, argsObj);
           if (!execMsg) { log("no execServerMessage channel, skip exec"); }
           if (execMsg) yield execMsg;
           // 等待客户端回传 ExecClientMessage 结果(期间心跳保活)
@@ -1062,7 +1270,7 @@
             await new Promise(function (rs) { setTimeout(rs, 120); });
           }
           // toolCallCompleted(带结果回填, UI 收尾)
-          var cpMsg = buildAgentToolUpdate(ap, ap.toolCompletedField, c2.id, c2.name, argsObj, null);
+          var cpMsg = buildAgentToolUpdate(ap, ap.toolCompletedField, c2.id, resolved, argsObj, null);
           if (cpMsg) yield cpMsg;
           var resultText = resultMsg
             ? serializeToolResult(resultMsg).slice(0, 60000)
@@ -1087,6 +1295,203 @@
       log("done", key, "| agent final:", finalText.slice(0, 80));
     }
 
+    /* ---------- Chat 界面 (aiserver.v1) 工具循环生成器 ---------- */
+    // 沿 emitter 链定位含 clientSideToolV2Call 的层: 记录各层类型与包装字段
+    // tp = {types:[外层..内层], ems:[wrap层], at: callField 所在层下标, callField}
+    function resolveChatToolPath(em, RespT2) {
+      var types = [RespT2];
+      var ems = [];
+      var cur = em;
+      while (cur && cur.kind === "wrap") {
+        types.push(cur.field.T);
+        ems.push(cur);
+        cur = cur.sub;
+      }
+      for (var i = 0; i < types.length; i++) {
+        var f = findFieldDeep(types[i], "clientSideToolV2Call");
+        if (f && f.kind === "message" && f.T) return { types: types, ems: ems, at: i, callField: f };
+      }
+      return null;
+    }
+    // 从 at 层 partial 向外包装到最外层响应类型
+    function buildChatToolCallMsg(tp, callPartial) {
+      try {
+        var p = setField({}, tp.callField, new tp.callField.T(callPartial));
+        for (var i = tp.at; i > 0; i--) {
+          var em = tp.ems[i - 1];
+          p = setField({}, em.field, new em.field.T(p));
+        }
+        return new tp.types[0](p);
+      } catch (e) { err("chat toolCall build failed:", e && e.message); return null; }
+    }
+    // 请求流控制包解包: request oneof 沿 clientChunk/streamUnifiedChatRequest 深入, 命中 clientSideToolV2Result
+    function unwrapChatToolResult(m) {
+      var cur = m, d = 0;
+      while (cur && d < 6) {
+        var r = cur.request;
+        if (r && r.case && r.value) {
+          if (r.case === "clientSideToolV2Result") return r.value;
+          if (r.case === "clientChunk" || r.case === "streamUnifiedChatRequest") { cur = r.value; d++; continue; }
+        }
+        return null;
+      }
+      return null;
+    }
+    function findChatToolResult(callId, from) {
+      var fallback = null;
+      for (var i = from; i < collected.length; i++) {
+        var res = unwrapChatToolResult(collected[i]);
+        if (!res) continue;
+        if (String(res.toolCallId || "") === String(callId)) return { res: res, idx: i, matched: "id" };
+        if (!fallback) fallback = { res: res, idx: i, matched: "fifo" }; // FIFO 兜底
+      }
+      return fallback;
+    }
+    function chatToolResultText(res) {
+      try {
+        if (res && res.error) return "Error: " + String(res.error.message || res.error.msg || res.error);
+      } catch (e) { /* noop */ }
+      return serializeToolResult(res).slice(0, 60000);
+    }
+    async function* chatOutputLoop(info) {
+      var tp = chatToolsPlan;
+      var CallT = tp.callField.T;
+      var toolField = findFieldDeep(CallT, "tool");
+      var EnumT = toolField && toolField.T; // protobuf-es enum 对象: 名 -> 数字
+      var fId = findFieldDeep(CallT, "toolCallId");
+      var fName = findFieldDeep(CallT, "name");
+      var fRawArgs = findFieldDeep(CallT, "rawArgs");
+      if (!toolField || !EnumT) throw new Error(TAG + " chat tools: no tool enum on " + CallT.typeName);
+      var mcpTools = [];
+      try {
+        mcpTools = (info.meta && info.meta.chatReq && info.meta.chatReq.requestContext
+          && info.meta.chatReq.requestContext.tools) || [];
+      } catch (eM2) { mcpTools = []; }
+      var tools = chatToolSchemas(EnumT, mcpTools);
+      if (emitter && emitter.kind === "wrap") {
+        var ss2 = maybeStreamStart(RespT);
+        if (ss2) yield ss2;
+      }
+      var messages = info.messages.slice();
+      var finalText = "";
+      var watermark = collected.length;
+      var callSeq = 0;
+      for (var round = 0; round < AGENT_MAX_ROUNDS; round++) {
+        var res;
+        try {
+          res = await callUpstream(messages, info.model, signal, tools.length ? tools : null);
+        } catch (e) {
+          if (e && e.name === "AbortError") throw e;
+          throw new Error(TAG + " upstream fetch failed: " + (e && e.message));
+        }
+        if (!res.ok) {
+          var errText3 = "";
+          try { errText3 = await res.text(); } catch (eT3) { /* noop */ }
+          err("upstream error", res.status, errText3 && errText3.slice(0, 300));
+          throw new Error(TAG + " upstream API " + res.status + ": " + String(errText3).slice(0, 300));
+        }
+        var it = sseIterator(res);
+        var accText = "";
+        var pending = {};
+        try {
+          while (true) {
+            var r;
+            try { r = await it.next(); }
+            catch (eR2) {
+              if (eR2 && eR2.name === "AbortError") throw eR2;
+              throw new Error(TAG + " stream read failed: " + (eR2 && eR2.message));
+            }
+            if (r.done) break;
+            var part = r.value;
+            if (!part) continue;
+            if (part.type === "reasoning" && !CFG.sendReasoningAsText) {
+              var tm2 = makeRespMsg(emitter, RespT, null, part.text);
+              if (tm2) yield tm2;
+              continue;
+            }
+            if (part.type === "toolCall") {
+              var tcs2 = part.toolCalls || [];
+              for (var ti2 = 0; ti2 < tcs2.length; ti2++) {
+                var tc2 = tcs2[ti2] || {};
+                var tidx2 = (tc2.index != null) ? tc2.index : 0;
+                if (!pending[tidx2]) pending[tidx2] = { id: "", name: "", args: "" };
+                if (tc2.id) pending[tidx2].id = String(tc2.id);
+                var fn2 = tc2.function || {};
+                if (fn2.name) pending[tidx2].name = String(fn2.name);
+                if (fn2.arguments) pending[tidx2].args += String(fn2.arguments);
+              }
+              continue;
+            }
+            if (part.type === "text" && part.text) {
+              finalText += part.text;
+              accText += part.text;
+              var am2 = makeRespMsg(emitter, RespT, part.text, null);
+              if (am2) yield am2;
+            }
+          }
+        } finally {
+          if (it && typeof it["return"] === "function") {
+            try { it["return"](); } catch (eCleanup3) { /* noop */ }
+          }
+        }
+        var calls = Object.keys(pending).map(function (k) { return pending[k]; })
+          .filter(function (c) { return c.name && resolveChatTool(c.name, EnumT, mcpTools); });
+        if (!calls.length) break; // 纯文本回合 -> 结束循环
+        log("chat tool round", round + 1, "| calls:", calls.length, "(" + calls.map(function (c) { return c.name; }).join(",") + ")");
+        messages.push({
+          role: "assistant",
+          content: accText || null,
+          tool_calls: calls.map(function (c) {
+            return { id: c.id || ("chatcall_" + (++callSeq)), type: "function", function: { name: c.name, arguments: c.args || "{}" } };
+          })
+        });
+        for (var ci2 = 0; ci2 < calls.length; ci2++) {
+          var c3 = calls[ci2];
+          if (!c3.id) c3.id = "chatcall_" + (++callSeq);
+          var argsObj2 = {};
+          try { argsObj2 = JSON.parse(c3.args || "{}"); } catch (eJ2) { argsObj2 = {}; }
+          var resolved2 = resolveChatTool(c3.name, EnumT, mcpTools);
+          if (!resolved2) continue;
+          var callPartial = {};
+          if (fId) callPartial.toolCallId = c3.id;
+          if (fName) callPartial.name = resolved2.mcp ? (resolved2.mcp.toolName || resolved2.mcp.name) : c3.name;
+          setField(callPartial, toolField, EnumT[resolved2.cfg.tool]);
+          if (fRawArgs) callPartial.rawArgs = c3.args || "{}";
+          var pc = findFieldDeep(CallT, resolved2.cfg.paramsCase);
+          if (pc && pc.T) {
+            var pp = chatParamsPartial(resolved2.cfg, resolved2.mcp, argsObj2);
+            setField(callPartial, pc, new pc.T(partialFor(pc.T, pp)));
+          }
+          var toolMsg = buildChatToolCallMsg(tp, callPartial);
+          if (toolMsg) yield toolMsg;
+          // 等待客户端回传 clientSideToolV2Result
+          var resultMsg2 = null;
+          var deadline2 = Date.now() + AGENT_TOOL_TIMEOUT;
+          while (Date.now() < deadline2) {
+            var found2 = findChatToolResult(c3.id, watermark);
+            if (found2) {
+              resultMsg2 = found2.res;
+              log("chat tool result", found2.matched, "| id=" + String(resultMsg2.toolCallId || "-"));
+              watermark = found2.idx + 1;
+              break;
+            }
+            if (signal && signal.aborted) break;
+            await new Promise(function (rs2) { setTimeout(rs2, 120); });
+          }
+          var resultText2 = resultMsg2
+            ? chatToolResultText(resultMsg2)
+            : "(tool execution timed out or was not executed by the client)";
+          messages.push({ role: "tool", tool_call_id: c3.id, content: resultText2 });
+        }
+      }
+      if (!finalText) {
+        finalText = "(model returned empty response)";
+        var em3 = makeRespMsg(emitter, RespT, finalText, null);
+        if (em3) yield em3;
+      }
+      log("done", key, "| chat final:", finalText.slice(0, 80));
+    }
+
     async function* output() {
       var info;
       try {
@@ -1097,6 +1502,11 @@
       // agent.v1: 独立循环生成器(支持多轮工具调用), 不走下方单轮路径
       if (isAgentRun) {
         yield* agentOutputLoop(info);
+        return;
+      }
+      // Chat 界面工具通道(clientSideToolV2Call 往返), 不走下方单轮路径
+      if (chatToolsPlan) {
+        yield* chatOutputLoop(info);
         return;
       }
       var res;
@@ -1284,7 +1694,7 @@
 
   g.__CURSOR_CM__ = {
     active: true,
-    version: "1.5.1",
+    version: "1.6.1",
     stats: stats,
     __dump: dumpStore,
     config: {

@@ -1,9 +1,10 @@
 // ============================================================
-// 集成测试 v1.2: 模拟 Cursor transport + protobuf-es v2 消息类型 + Mock SSE
+// 集成测试 v1.6: 模拟 Cursor transport + protobuf-es v2 消息类型 + Mock SSE
 // 覆盖: 消息提取 / 模型映射 / SSE解析 / oneof包装响应构造 /
 //       CmdK编辑协议 / Agent包装响应 / streamStart / BiDi合并 / 透传 / 错误处理 /
 //       agent.v1.AgentService/Run 协议(Agents 界面: 心跳/textDelta/thinkingDelta/
-//       turnEnded 单次/多轮记忆/空回复兜底)
+//       turnEnded 单次/多轮记忆/空回复兜底/8工具+MCP动态工具循环) /
+//       Chat 界面 clientSideToolV2Call 工具循环(BTe 直发 / VEi 三层包装 / MCP)
 // ============================================================
 "use strict";
 const http = require("http");
@@ -52,7 +53,7 @@ function makeType(typeName, fieldDefs) {
   const oneofs = {};
   const members = [];
   for (const f of fieldDefs) {
-    const info = { no: f.no, name: f.name, localName: camel(f.name), kind: f.kind, T: f.T, repeated: !!f.repeated, opt: !!f.opt };
+    const info = { no: f.no, name: f.name, localName: camel(f.name), kind: f.kind, T: f.T, V: f.V, repeated: !!f.repeated, opt: !!f.opt };
     if (f.oneof) {
       if (!oneofs[f.oneof]) {
         const oi = { localName: f.oneof, kind: "oneof", fields: [], findField: (n) => oi.fields.find((x) => x.localName === n) };
@@ -85,8 +86,80 @@ const SFt = makeType("aiserver.v1.StreamUnifiedChatResponse", [
 const StreamStartT = makeType("aiserver.v1.StreamStart", [
   { no: 1, name: "padding", kind: "scalar" }
 ]);
+
+// ---------- google.protobuf well-known 类型手写 mock ----------
+// protobuf-es v2 的 Value/Struct 是手写类(非生成): static wrap(json) + typeName 前缀
+// runtime 的 isWellKnownJsonT 靠 "google.protobuf." 前缀识别
+class ValueT {
+  constructor(init) { if (init) for (const k of Object.keys(init)) this[k] = init[k]; }
+  static wrap(v) { return new ValueT({ jsonValue: v }); }
+  static fromJson(v) { return ValueT.wrap(v); }
+}
+ValueT.typeName = "google.protobuf.Value";
+class StructT {
+  constructor(init) { if (init) for (const k of Object.keys(init)) this[k] = init[k]; }
+  static wrap(v) { return new StructT({ fields: v }); }
+  static fromJson(v) { return StructT.wrap(v); }
+}
+StructT.typeName = "google.protobuf.Struct";
+
+// ---------- Chat 界面 clientSideToolV2 工具通道类型 (v1.6.0) ----------
+const St = { // aiserver.v1.ClientSideToolV2 枚举(真实值: 逆向 workbench 实证)
+  RIPGREP_SEARCH: 3, DELETE_FILE: 11, RUN_TERMINAL_COMMAND_V2: 15, LIST_DIR_V2: 39,
+  READ_FILE_V2: 40, GLOB_FILE_SEARCH: 42, CALL_MCP_TOOL: 49, WEB_FETCH: 57
+};
+const PatternInfoT = makeType("aiserver.v1.PatternInfo", [
+  { no: 1, name: "pattern", kind: "scalar" },
+  { no: 2, name: "is_reg_exp", kind: "scalar", opt: true },
+  { no: 3, name: "is_case_sensitive", kind: "scalar", opt: true }
+]);
+const RipgrepSearchParamsT = makeType("aiserver.v1.RipgrepSearchParams", [
+  { no: 1, name: "pattern_info", kind: "message", T: PatternInfoT }
+]);
+const ReadFileV2ParamsT = makeType("aiserver.v1.ReadFileV2Params", [
+  { no: 1, name: "target_file", kind: "scalar" },
+  { no: 2, name: "offset", kind: "scalar", opt: true },
+  { no: 3, name: "limit", kind: "scalar", opt: true }
+]);
+const ListDirV2ParamsT = makeType("aiserver.v1.ListDirV2Params", [
+  { no: 1, name: "target_directory", kind: "scalar" }
+]);
+const RunTerminalCommandV2ParamsT = makeType("aiserver.v1.RunTerminalCommandV2Params", [
+  { no: 1, name: "command", kind: "scalar" },
+  { no: 2, name: "cwd", kind: "scalar", opt: true },
+  { no: 3, name: "require_user_approval", kind: "scalar", opt: true }
+]);
+const CallMcpToolParamsT = makeType("aiserver.v1.CallMcpToolParams", [
+  { no: 1, name: "server", kind: "scalar" },
+  { no: 2, name: "tool_name", kind: "scalar" },
+  { no: 3, name: "tool_args", kind: "message", T: StructT }
+]);
+const ClientSideToolV2CallT = makeType("aiserver.v1.ClientSideToolV2Call", [
+  { no: 1, name: "tool", kind: "enum", T: St },
+  { no: 2, name: "tool_call_id", kind: "scalar" },
+  { no: 9, name: "name", kind: "scalar" },
+  { no: 10, name: "raw_args", kind: "scalar" },
+  { no: 4, name: "ripgrep_search_params", kind: "message", T: RipgrepSearchParamsT, oneof: "params" },
+  { no: 5, name: "read_file_v2_params", kind: "message", T: ReadFileV2ParamsT, oneof: "params" },
+  { no: 6, name: "list_dir_v2_params", kind: "message", T: ListDirV2ParamsT, oneof: "params" },
+  { no: 7, name: "run_terminal_command_v2_params", kind: "message", T: RunTerminalCommandV2ParamsT, oneof: "params" },
+  { no: 8, name: "call_mcp_tool_params", kind: "message", T: CallMcpToolParamsT, oneof: "params" }
+]);
+const ErrorT = makeType("aiserver.v1.ClientSideToolV2Result.Error", [
+  { no: 1, name: "message", kind: "scalar" }
+]);
+const ReadFileV2ResultT = makeType("aiserver.v1.ReadFileV2Result", [
+  { no: 1, name: "target_file", kind: "scalar", opt: true },
+  { no: 2, name: "content", kind: "scalar" }
+]);
+const ClientSideToolV2ResultT = makeType("aiserver.v1.ClientSideToolV2Result", [
+  { no: 1, name: "tool_call_id", kind: "scalar" },
+  { no: 2, name: "error", kind: "message", T: ErrorT, opt: true },
+  { no: 3, name: "read_file_v2_result", kind: "message", T: ReadFileV2ResultT, oneof: "result" }
+]);
+
 const BTe = makeType("aiserver.v1.StreamUnifiedChatResponseWithTools", [
-  { no: 1, name: "client_side_tool_v2_call", kind: "scalar", oneof: "response" },
+  { no: 1, name: "client_side_tool_v2_call", kind: "message", T: ClientSideToolV2CallT, oneof: "response" },
   { no: 2, name: "stream_unified_chat_response", kind: "message", T: SFt, oneof: "response" },
   { no: 5, name: "stream_start", kind: "message", T: StreamStartT, oneof: "response" }
 ]);
@@ -203,8 +276,42 @@ const ReadToolCallT = makeType("agent.v1.ReadToolCall", [
   { no: 1, name: "args", kind: "message", T: ReadToolArgsT },
   { no: 2, name: "result", kind: "message", T: ReadFileResultT }
 ]);
+// write_file / MCP 工具往返类型 (v1.6.0; UI 层与 exec 通道字段名不同:
+// EditToolCall.args 用 stream_content, WriteArgs 用 file_text)
+const WriteArgsT = makeType("agent.v1.WriteArgs", [
+  { no: 1, name: "path", kind: "scalar" },
+  { no: 2, name: "file_text", kind: "scalar" },
+  { no: 3, name: "tool_call_id", kind: "scalar" }
+]);
+const EditArgsT = makeType("agent.v1.EditArgs", [
+  { no: 1, name: "path", kind: "scalar" },
+  { no: 2, name: "stream_content", kind: "scalar" }
+]);
+const WriteResultT = makeType("agent.v1.WriteResult", [
+  { no: 1, name: "message", kind: "scalar" }
+]);
+const EditToolCallT = makeType("agent.v1.EditToolCall", [
+  { no: 1, name: "args", kind: "message", T: EditArgsT },
+  { no: 2, name: "result", kind: "message", T: WriteResultT }
+]);
+const McpArgsT = makeType("agent.v1.McpArgs", [
+  { no: 1, name: "name", kind: "scalar" },
+  { no: 2, name: "args", kind: "map", V: { T: ValueT } }, // map<string, google.protobuf.Value>
+  { no: 3, name: "tool_call_id", kind: "scalar" },
+  { no: 4, name: "provider_identifier", kind: "scalar" },
+  { no: 5, name: "tool_name", kind: "scalar" }
+]);
+const McpResultT = makeType("agent.v1.McpResult", [
+  { no: 1, name: "content", kind: "scalar" }
+]);
+const McpToolCallT = makeType("agent.v1.McpToolCall", [
+  { no: 1, name: "args", kind: "message", T: McpArgsT },
+  { no: 2, name: "result", kind: "message", T: McpResultT }
+]);
 const AgentToolCallT = makeType("agent.v1.ToolCall", [
-  { no: 8, name: "read_tool_call", kind: "message", T: ReadToolCallT, oneof: "tool" }
+  { no: 8, name: "read_tool_call", kind: "message", T: ReadToolCallT, oneof: "tool" },
+  { no: 12, name: "edit_tool_call", kind: "message", T: EditToolCallT, oneof: "tool" },
+  { no: 15, name: "mcp_tool_call", kind: "message", T: McpToolCallT, oneof: "tool" }
 ]);
 const ToolCallStartedT = makeType("agent.v1.ToolCallStartedUpdate", [
   { no: 1, name: "call_id", kind: "scalar" },
@@ -217,7 +324,9 @@ const ToolCallCompletedT = makeType("agent.v1.ToolCallCompletedUpdate", [
 const ExecClientMessageT = makeType("agent.v1.ExecClientMessage", [
   { no: 1, name: "id", kind: "scalar" },
   { no: 15, name: "exec_id", kind: "scalar" },
-  { no: 7, name: "read_result", kind: "message", T: ReadFileResultT, oneof: "message" }
+  { no: 7, name: "read_result", kind: "message", T: ReadFileResultT, oneof: "message" },
+  { no: 3, name: "write_result", kind: "message", T: WriteResultT, oneof: "message" },
+  { no: 11, name: "mcp_result", kind: "message", T: McpResultT, oneof: "message" }
 ]);
 // ExecServerMessage — 真正驱动客户端执行工具的指令通道(v1.5.1 三段式协议)
 const ReadArgsT = makeType("agent.v1.ReadArgs", [
@@ -243,7 +352,9 @@ const ExecServerMessageT = makeType("agent.v1.ExecServerMessage", [
   { no: 15, name: "exec_id", kind: "scalar" },
   { no: 7, name: "read_args", kind: "message", T: ReadArgsT, oneof: "message" },
   { no: 5, name: "grep_args", kind: "message", T: GrepArgsT, oneof: "message" },
-  { no: 8, name: "ls_args", kind: "message", T: LsArgsT, oneof: "message" }
+  { no: 8, name: "ls_args", kind: "message", T: LsArgsT, oneof: "message" },
+  { no: 3, name: "write_args", kind: "message", T: WriteArgsT, oneof: "message" },
+  { no: 11, name: "mcp_args", kind: "message", T: McpArgsT, oneof: "message" }
 ]);
 const AgentClientMsgT = makeType("agent.v1.AgentClientMessage", [
   { no: 1, name: "run_request", kind: "message", T: AgentRunRequestT, oneof: "message" },
@@ -632,10 +743,10 @@ async function runTests(T) {
     inners21[0] && inners21[0].case === "heartbeat" &&
     textJoined === "你好" &&
     turnEndedCount === 1 &&
-    lastRequestBody.messages.length === 2 &&
-    lastRequestBody.messages[0].role === "system" &&
-    lastRequestBody.messages[1].role === "user" &&
-    lastRequestBody.messages[1].content === "打个招呼" &&
+    // 纯透传(v1.6.1): 无 requestContext/customSystemPrompt 时不发 system 消息
+    lastRequestBody.messages.length === 1 &&
+    lastRequestBody.messages[0].role === "user" &&
+    lastRequestBody.messages[0].content === "打个招呼" &&
     lastRequestBody.model === "deepseek-v4-flash",
     JSON.stringify(inners21.map((x) => x && x.case)));
 
@@ -706,7 +817,7 @@ async function runTests(T) {
     started25.value.toolCall.tool.value.args.path === "src/a.txt" &&
     !!completed25 && completed25.value.callId === "call_1" &&
     text25 === "文件内容是X" && turns25 === 1 &&
-    Array.isArray(body1.tools) && body1.tools.length === 3 &&
+    Array.isArray(body1.tools) && body1.tools.length === 8 &&
     !!asstMsg && asstMsg.tool_calls[0].function.name === "read_file" &&
     !!toolMsg && toolMsg.tool_call_id === "call_1" && toolMsg.content.includes("FILE-CONTENT-X"),
     JSON.stringify(toolInners.map((x) => x && x.case)));
@@ -751,8 +862,8 @@ async function runTests(T) {
     sys27.content.slice(0, 300));
 
   // T28: 嵌套 requestContext (3.16.17 实证: 位于 action.userMessageAction 层, 顶层不填充)
-  //     - env(含 terminalsFolder) 流入系统提示词; MCP 工具默认不带 schema;
-  //     - 显式声明本会话仅 read_file/grep_search/list_dir 可调用;
+  //     - 系统提示词纯透传(v1.6.1): 仅 Cursor 收集的原文数据(env/MCP 指令/工具描述),
+  //       无自写角色提示词、无工具可调用 Note 声明; MCP 工具默认不带 schema;
   //     - stats.agentDebug.rcFrom 诊断为 "userMessageAction"
   sseScript = [{ delta: { content: "ok" } }];
   r = await wrapped.stream(svcAgent, mAgentRun, null, null, {}, oneMsg(new AgentClientMsgT({
@@ -772,7 +883,7 @@ async function runTests(T) {
   })));
   await collect(r.message);
   const sys28 = lastRequestBody.messages[0];
-  T("T28 嵌套requestContext(uma层)+工具不可调用声明",
+  T("T28 嵌套requestContext(uma层)+纯透传系统提示词",
     sys28.role === "system" &&
     sys28.content.includes("OS: win32 10.0.28000") &&
     sys28.content.includes("Shell: powershell") &&
@@ -780,9 +891,206 @@ async function runTests(T) {
     sys28.content.includes("cursor-ide-browser/browser_navigate") &&
     sys28.content.includes("Use browser tools carefully.") &&
     !sys28.content.includes("schema:") &&
-    sys28.content.includes("read_file, grep_search, list_dir") &&
-    sys28.content.includes("NOT callable here") &&
+    !sys28.content.includes("You are an AI coding agent") &&
+    !sys28.content.includes("Note: tools you can actually invoke") &&
     cm.stats.agentDebug && cm.stats.agentDebug.rcFrom === "userMessageAction" &&
-    cm.stats.agentDebug.sysLen > 269,
+    cm.stats.agentDebug.sysLen > 200,
     JSON.stringify(cm.stats.agentDebug));
+
+  // T34: agentSystemPrompt 配置注入 -- 纯透传模式下唯一自定义入口(默认空)
+  sseScript = [{ delta: { content: "ok" } }];
+  const cmP = new Function(runtimeSrc.replace(JSON.stringify(cfg), JSON.stringify({ ...cfg, agentSystemPrompt: "你是定制助手" })) + "\n;return globalThis.__CURSOR_CM__;")();
+  const wP = cmP.wrap(origTransport);
+  const rP = await wP.stream(svcAgent, mAgentRun, null, null, {}, oneMsg(mkAgentReq("conv-t34", "hi", {
+    requestContext: new AgentRequestContextT({ env: new AgentEnvT({ osVersion: "win32 10.0.28000" }) })
+  })));
+  await collect(rP.message);
+  const sys34 = lastRequestBody.messages[0];
+  T("T34 agentSystemPrompt配置注入(纯透传自定义入口)",
+    sys34.role === "system" &&
+    sys34.content.indexOf("你是定制助手") === 0 &&
+    sys34.content.includes("OS: win32 10.0.28000") &&
+    !sys34.content.includes("You are an AI coding agent"),
+    JSON.stringify(sys34.content.slice(0, 120)));
+
+  // ================= Chat 界面 clientSideToolV2 工具循环 (v1.6.0) =================
+  // BiDi 收集窗口 800ms: 结果消息须在窗口关闭后才注入, 否则会落在 watermark 之前被跳过
+  const chatBidiInput = (reqPayload, delayMs, afterMsg) => (async function* () {
+    yield { request: { case: "streamUnifiedChatRequest", value: reqPayload } };
+    await new Promise((rs) => setTimeout(rs, delayMs));
+    yield afterMsg;
+  })();
+
+  // T29: BTe 直发 - 模型发 read_file -> clientSideToolV2Call(枚举+params oneof) ->
+  //     客户端回传 clientSideToolV2Result -> 二轮上游含 role:tool -> 最终文本
+  sseQueue = [
+    [{ delta: { tool_calls: [{ index: 0, id: "cc_1", type: "function", function: { name: "read_file", arguments: "{\"path\":\"src/b.txt\"}" } }] } }],
+    [{ delta: { content: "聊天读到了" } }]
+  ];
+  const b29 = requestBodies.length;
+  r = await wrapped.stream(svcChat, mWithTools, null, null, {}, chatBidiInput(
+    { conversation: [{ type: 1, text: "读b" }], modelDetails: { modelName: "gpt-4" } }, 1200,
+    { request: { case: "clientSideToolV2Result", value: new ClientSideToolV2ResultT({
+      toolCallId: "cc_1",
+      result: { case: "readFileV2Result", value: new ReadFileV2ResultT({ targetFile: "src/b.txt", content: "CHAT-FILE-CONTENT" }) }
+    }) } }
+  ));
+  const chat29 = await collect(r.message);
+  const call29 = chat29.find((m) => m instanceof BTe && m.response.case === "clientSideToolV2Call");
+  const c29 = call29 && call29.response.value;
+  const text29 = chat29.filter((m) => m.response && m.response.case === "streamUnifiedChatResponse").map((m) => m.response.value.text).join("");
+  const body29a = requestBodies[b29] || {};
+  const body29b = requestBodies[b29 + 1] || {};
+  const tool29 = body29b.messages && body29b.messages.find((m) => m.role === "tool");
+  T("T29 Chat工具循环(BTe clientSideToolV2Call往返)",
+    chat29[0] instanceof BTe && chat29[0].response.case === "streamStart" &&
+    !!c29 && c29 instanceof ClientSideToolV2CallT && c29.tool === St.READ_FILE_V2 &&
+    c29.toolCallId === "cc_1" && c29.name === "read_file" && String(c29.rawArgs).includes("src/b.txt") &&
+    !!c29.params && c29.params.case === "readFileV2Params" && c29.params.value instanceof ReadFileV2ParamsT &&
+    c29.params.value.targetFile === "src/b.txt" &&
+    text29 === "聊天读到了" &&
+    Array.isArray(body29a.tools) && body29a.tools.length === 7 &&
+    !!tool29 && tool29.tool_call_id === "cc_1" && tool29.content.includes("CHAT-FILE-CONTENT"),
+    JSON.stringify(chat29.map((m) => m.response && m.response.case)));
+
+  // T30: VEi(Idempotent) 三层包装 - serverChunk(BTe) 包 clientSideToolV2Call;
+  //     结果经 clientChunk 两层深入解包; build(cfg) 型参数映射(command/cwd/审批)
+  sseQueue = [
+    [{ delta: { tool_calls: [{ index: 0, id: "cc_2", type: "function", function: { name: "run_terminal_cmd", arguments: "{\"command\":\"git status\",\"working_directory\":\"D:/demo\"}" } }] } }],
+    [{ delta: { content: "终端OK" } }]
+  ];
+  const b30 = requestBodies.length;
+  r = await wrapped.stream(svcChat, mIdem, null, null, {}, (async function* () {
+    yield { request: { case: "clientChunk", value: { request: { case: "streamUnifiedChatRequest", value: { conversation: [{ type: 1, text: "跑命令" }], modelDetails: { modelName: "gpt-4" } } } } } };
+    await new Promise((rs) => setTimeout(rs, 1200));
+    yield { request: { case: "clientChunk", value: { request: { case: "clientSideToolV2Result", value: new ClientSideToolV2ResultT({ toolCallId: "cc_2" }) } } } };
+  })());
+  const idem30 = await collect(r.message);
+  const call30 = idem30.find((m) => m instanceof VEi && m.response.case === "serverChunk" && m.response.value.response.case === "clientSideToolV2Call");
+  const p30 = call30 && call30.response.value.response.value;
+  const text30 = idem30.filter((m) => m instanceof VEi && m.response.case === "serverChunk" && m.response.value.response.case === "streamUnifiedChatResponse").map((m) => m.response.value.response.value.text).join("");
+  const body30b = requestBodies[b30 + 1] || {};
+  const tool30 = body30b.messages && body30b.messages.find((m) => m.role === "tool");
+  T("T30 Idempotent三层包装工具调用",
+    !!call30 && call30 instanceof VEi && call30.response.value instanceof BTe &&
+    !!p30 && p30 instanceof ClientSideToolV2CallT && p30.tool === St.RUN_TERMINAL_COMMAND_V2 && p30.toolCallId === "cc_2" &&
+    !!p30.params && p30.params.case === "runTerminalCommandV2Params" &&
+    p30.params.value instanceof RunTerminalCommandV2ParamsT &&
+    p30.params.value.command === "git status" && p30.params.value.cwd === "D:/demo" && p30.params.value.requireUserApproval === true &&
+    text30 === "终端OK" &&
+    !!tool30 && tool30.tool_call_id === "cc_2",
+    JSON.stringify(idem30.map((m) => m.response && m.response.case)));
+
+  // T31: agent write_file - UI 层 editToolCall(EditArgs.streamContent) 与
+  //     exec 通道 writeArgs(WriteArgs.fileText) 字段名差异 + 结果回传
+  sseQueue = [
+    [{ delta: { tool_calls: [{ index: 0, id: "call_w", type: "function", function: { name: "write_file", arguments: "{\"path\":\"out/new.txt\",\"content\":\"HELLO\"}" } }] } }],
+    [{ delta: { content: "写入完成" } }]
+  ];
+  const b31 = requestBodies.length;
+  r = await wrapped.stream(svcAgent, mAgentRun, null, null, {}, (async function* () {
+    yield mkAgentReq("conv-t31", "写文件");
+    await new Promise((rs) => setTimeout(rs, 300));
+    yield new AgentClientMsgT({
+      message: { case: "execClientMessage", value: new ExecClientMessageT({
+        id: 1, execId: "call_w",
+        message: { case: "writeResult", value: new WriteResultT({ message: "WROTE-OK" }) }
+      }) }
+    });
+  })());
+  const srv31 = await collect(r.message);
+  const inners31 = srv31.map(agentInner);
+  const started31 = inners31.find((x) => x && x.case === "toolCallStarted");
+  const execMsg31 = srv31.find((m) => m.message && m.message.case === "execServerMessage");
+  const ex31 = execMsg31 && execMsg31.message.value.message;
+  const stArgs31 = started31 && started31.value.toolCall.tool;
+  const text31 = inners31.filter((x) => x && x.case === "textDelta").map((x) => x.value.text).join("");
+  const body31b = requestBodies[b31 + 1] || {};
+  const tool31 = body31b.messages && body31b.messages.find((m) => m.role === "tool");
+  T("T31 agent write_file(editToolCall+writeArgs双字段名)",
+    !!stArgs31 && stArgs31.case === "editToolCall" &&
+    stArgs31.value.args instanceof EditArgsT &&
+    stArgs31.value.args.path === "out/new.txt" && stArgs31.value.args.streamContent === "HELLO" &&
+    !!ex31 && ex31.case === "writeArgs" && ex31.value instanceof WriteArgsT &&
+    ex31.value.path === "out/new.txt" && ex31.value.fileText === "HELLO" && ex31.value.toolCallId === "call_w" &&
+    text31 === "写入完成" &&
+    !!tool31 && tool31.tool_call_id === "call_w" && tool31.content.includes("WROTE-OK"),
+    JSON.stringify(inners31.map((x) => x && x.case)) + "|" + String(ex31 && ex31.case));
+
+  // T32: agent MCP 动态工具 - requestContext.tools -> schema 下发 + mcpArgs
+  //     (map<string,Value> 值经 Value.wrap) + MCP 结果回传
+  sseQueue = [
+    [{ delta: { tool_calls: [{ index: 0, id: "call_m", type: "function", function: { name: "cursor-ide-browser-browser_navigate", arguments: "{\"url\":\"https://example.com\"}" } }] } }],
+    [{ delta: { content: "导航完成" } }]
+  ];
+  const b32 = requestBodies.length;
+  r = await wrapped.stream(svcAgent, mAgentRun, null, null, {}, (async function* () {
+    yield mkAgentReq("conv-t32", "打开网页", {
+      requestContext: new AgentRequestContextT({
+        tools: [new AgentToolT({ name: "cursor-ide-browser-browser_navigate", providerIdentifier: "cursor-ide-browser", toolName: "browser_navigate", description: "Navigate to URL", inputSchemaJson: "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}" })]
+      })
+    });
+    await new Promise((rs) => setTimeout(rs, 300));
+    yield new AgentClientMsgT({
+      message: { case: "execClientMessage", value: new ExecClientMessageT({
+        id: 1, execId: "call_m",
+        message: { case: "mcpResult", value: new McpResultT({ content: "NAV-OK" }) }
+      }) }
+    });
+  })());
+  const srv32 = await collect(r.message);
+  const inners32 = srv32.map(agentInner);
+  const started32 = inners32.find((x) => x && x.case === "toolCallStarted");
+  const tc32 = started32 && started32.value.toolCall.tool;
+  const mcpArgs32 = tc32 && tc32.case === "mcpToolCall" ? tc32.value.args : null;
+  const execMsg32 = srv32.find((m) => m.message && m.message.case === "execServerMessage");
+  const ex32 = execMsg32 && execMsg32.message.value.message;
+  const body32a = requestBodies[b32] || {};
+  const mcpSchema32 = body32a.tools && body32a.tools.find((t) => t.function && t.function.name === "cursor-ide-browser-browser_navigate");
+  const body32b = requestBodies[b32 + 1] || {};
+  const tool32 = body32b.messages && body32b.messages.find((m) => m.role === "tool");
+  const text32 = inners32.filter((x) => x && x.case === "textDelta").map((x) => x.value.text).join("");
+  T("T32 agent MCP工具(mcpArgs map Value.wrap)",
+    Array.isArray(body32a.tools) && body32a.tools.length === 9 &&
+    !!mcpSchema32 && mcpSchema32.function.parameters.required[0] === "url" &&
+    !!mcpArgs32 && mcpArgs32 instanceof McpArgsT &&
+    mcpArgs32.name === "cursor-ide-browser-browser_navigate" &&
+    mcpArgs32.providerIdentifier === "cursor-ide-browser" &&
+    mcpArgs32.toolName === "browser_navigate" && mcpArgs32.toolCallId === "call_m" &&
+    !!mcpArgs32.args && mcpArgs32.args.url instanceof ValueT && mcpArgs32.args.url.jsonValue === "https://example.com" &&
+    !!ex32 && ex32.case === "mcpArgs" && ex32.value instanceof McpArgsT && ex32.value.args.url instanceof ValueT &&
+    text32 === "导航完成" &&
+    !!tool32 && tool32.tool_call_id === "call_m" && tool32.content.includes("NAV-OK"),
+    JSON.stringify(inners32.map((x) => x && x.case)) + "|" + String(ex32 && ex32.case));
+
+  // T33: Chat MCP 工具 - CALL_MCP_TOOL 枚举 + callMcpToolParams(toolArgs 为
+  //     google.protobuf.Struct wrap) + 错误结果(Error.message)文本回填
+  sseQueue = [
+    [{ delta: { tool_calls: [{ index: 0, id: "cc_3", type: "function", function: { name: "cursor-ide-browser-browser_navigate", arguments: "{\"url\":\"https://example.com\"}" } }] } }],
+    [{ delta: { content: "MCP完成" } }]
+  ];
+  const b33 = requestBodies.length;
+  r = await wrapped.stream(svcChat, mWithTools, null, null, {}, chatBidiInput(
+    {
+      conversation: [{ type: 1, text: "导航" }], modelDetails: { modelName: "gpt-4" },
+      requestContext: { tools: [{ name: "cursor-ide-browser-browser_navigate", providerIdentifier: "cursor-ide-browser", toolName: "browser_navigate", description: "Navigate to URL", inputSchemaJson: "{\"type\":\"object\"}" }] }
+    }, 1200,
+    { request: { case: "clientSideToolV2Result", value: new ClientSideToolV2ResultT({ toolCallId: "cc_3", error: new ErrorT({ message: "boom-expected" }) }) } }
+  ));
+  const chat33 = await collect(r.message);
+  const call33 = chat33.find((m) => m instanceof BTe && m.response.case === "clientSideToolV2Call");
+  const c33 = call33 && call33.response.value;
+  const body33a = requestBodies[b33] || {};
+  const body33b = requestBodies[b33 + 1] || {};
+  const tool33 = body33b.messages && body33b.messages.find((m) => m.role === "tool");
+  T("T33 Chat MCP工具(CALL_MCP_TOOL+Struct)",
+    Array.isArray(body33a.tools) && body33a.tools.length === 8 &&
+    body33a.tools.some((t) => t.function && t.function.name === "cursor-ide-browser-browser_navigate") &&
+    !!c33 && c33.tool === St.CALL_MCP_TOOL && c33.toolCallId === "cc_3" &&
+    c33.name === "browser_navigate" && // MCP 调用 name 字段用 toolName
+    !!c33.params && c33.params.case === "callMcpToolParams" && c33.params.value instanceof CallMcpToolParamsT &&
+    c33.params.value.server === "cursor-ide-browser" && c33.params.value.toolName === "browser_navigate" &&
+    c33.params.value.toolArgs instanceof StructT && c33.params.value.toolArgs.fields.url === "https://example.com" &&
+    !!tool33 && tool33.tool_call_id === "cc_3" && tool33.content.includes("boom-expected"),
+    JSON.stringify(chat33.map((m) => m.response && m.response.case)));
 }

@@ -2,9 +2,23 @@
 
 [中文仓库](https://github.com/zhouruichen2015-pixel/cursor-custom-models) | [英文仓库](https://github.com/zhouruichen2015-pixel/cursor-custom-models-en)
 
-![version](https://img.shields.io/badge/version-1.5.1-blue) ![tests](https://img.shields.io/badge/integration_tests-28%2F28-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![cursor](https://img.shields.io/badge/tested_on-Cursor%203.16.x-orange)
+![version](https://img.shields.io/badge/version-1.6.1-blue) ![tests](https://img.shields.io/badge/integration_tests-34%2F34-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![cursor](https://img.shields.io/badge/tested_on-Cursor%203.16.x-orange)
 
-> 版本 1.5.1 | 适配 Cursor 3.16.17（Windows）| 逆向分析 + 传输层拦截方案
+> 版本 1.6.1 | 适配 Cursor 3.16.17（Windows）| 逆向分析 + 传输层拦截方案
+>
+> **v1.6.1：系统提示词纯透传（只有模型走自定义）**：
+> - 删除全部运行时自写文案：自造角色提示词（"You are an AI coding agent..."）、工具可调用 Note 声明、行为性标题后缀全部移除
+> - 系统消息仅由 **Cursor 客户端收集的原文数据**组成：环境信息、`.cursorrules` 规则原文、仓库信息、项目目录树、MCP 指令与工具描述，外加请求内 `customSystemPrompt` 原文--一字不改，模型看到的上下文与 Cursor 原生收集的完全一致
+> - 无任何上下文时不发送 system 消息（只发对话本身）
+> - 新增 `agentSystemPrompt` 配置（默认空）：纯透传模式下唯一自定义入口，需要基础角色设定时由你自己提供
+> - 集成测试 34/34 通过（T21/T28 断言更新为纯透传，新增 T34 配置注入验证）
+>
+> **v1.6.0 重大更新：全部工具通道打通（33/33 集成测试）**：
+> - **Chat 界面原生 UI 级工具循环（clientSideToolV2Call）**：经典 Chat 面板（`StreamUnifiedChat`/`WithTools`）中，模型的 function calling 被转换为 Cursor 原生 `clientSideToolV2Call`（`READ_FILE_V2`/`RIPGREP_SEARCH`/`LIST_DIR_V2`/`GLOB_FILE_SEARCH`/`RUN_TERMINAL_COMMAND_V2`/`DELETE_FILE`/`WEB_FETCH`），Cursor 以官方同款 UI 展示并本地真实执行，结果经 `clientSideToolV2Result` 回传进入下一轮推理；Idempotent 通道的 `clientChunk`/`vectorEmbryo` 三层包装自动解包/重包装，任意嵌套深度可达
+> - **Agent 通道扩展至 8 内置工具**：`read_file`/`grep_search`/`list_dir` 之外新增 `write_file`/`run_terminal_cmd`/`web_fetch`/`delete_file`/`read_lints`--写文件、跑终端命令、抓网页、删文件、读诊断均由 Cursor 客户端在 Agents 界面真实执行
+> - **MCP 动态工具双通道**：会话携带的 MCP 工具（`requestContext.tools`）自动转为 function schema 注入上游（上限 40 个），Agent 通道走 `mcpToolCall`/`mcpArgs`（`google.protobuf.Value` map），Chat 通道走 `CALL_MCP_TOOL`（`Struct` 包装）--你在 Cursor 里配置的任何 MCP 服务器工具均可被模型调用并真实执行
+> - **系统提示词动态声明可调用工具清单**（含 MCP 工具原名），模型不再被诱导调用无执行通道的工具；`mcpToolSchemas` 仅控制系统提示词是否内嵌 schema 全文（function calling 注入不受其影响）
+> - 集成测试 33/33 通过（新增 T29-T33：Chat 工具循环 / Idempotent 三层包装 / write_file 双字段名 / Agent MCP / Chat MCP）
 >
 > **v1.5.1 修复（真实协议 dump 实证）**：
 > - **requestContext 读取位置修正**：通过协议 dump 发现 3.16.17 的 Agent Run 请求中 `requestContext` 嵌在 `action.userMessageAction.requestContext`（而非顶层 `runRequest.requestContext`）。双位置兼容读取后，环境上下文真实流入系统提示词--E2E 实测 `sysLen` 从 269（仅基础提示词）增至 7832（OS/Shell/时区/工作目录/MCP 指令全量）
@@ -54,10 +68,10 @@
 | 无需常驻任何服务 | ✅ | ✅（脚本） | ❌ Node/Docker/隧道 | ✅ |
 | 用**自己的**模型和 Key | ✅ 任意 OpenAI 兼容 | ❌ 仅 Cursor 模型 | ❌ 转售 Cursor 额度 | ⚠️ 仅 Chat |
 | 原生 Agent + Cmd+K 可用 | ✅ | 仅试用 | ❌ 服务外部客户端 | ❌ Agent 被锁 |
-| IDE 内真实工具调用 | ✅ read/grep/list_dir | ❌ | ❌ | ❌ |
+| IDE 内真实工具调用 | ✅ 8 内置 + MCP（Chat/Agent 双通道） | ❌ | ❌ | ❌ |
 | `localhost` 端点 | ✅ | 不适用 | 不适用 | ❌ 被封 |
 | 无账号/指纹伪装把戏 | ✅ | ❌ 机器码+临时邮箱 | ❌ 共享 Cookie | ✅ |
-| 行为由测试锁定 | ✅ 28 项集成测试 | ❌ | 部分 | 不适用 |
+| 行为由测试锁定 | ✅ 34 项集成测试 | ❌ | 部分 | 不适用 |
 
 > 调研样本：yeongpin/cursor-free-vip（41.7k★，临时邮箱封号问题官方 README 自认）、7836246/cursor2api（~1.8k★，需常驻服务器+风控高发）、yuaotian/go-cursor-help（自动更新即失效，Issue #318）、StenCurry/CurryAPI 等 cursor-api 家族（ngrok 隧道/油猴依赖）、workbench 直改方案（CursorPlus 已归档、localMode 以阉割 Tab/Cmd+K 为代价）。
 
@@ -138,7 +152,7 @@ GLM 用户：先运行 `node cors-proxy.js https://open.bigmodel.cn 8117`，conf
 | `install.bat` / `patch.ps1` | **一键打补丁**（幂等，自动备份 + 语法校验 + 失败自动回滚 + product.json 校验和维护） |
 | `restore.bat` / `restore.ps1` | **一键还原原版**（版本降级保护 + 备份完整性校验） |
 | `status.bat` | 查看补丁/配置状态 |
-| `test.bat` / `test-integration.js` | 28 项集成测试（mock SSE + protobuf-es v2 类型模拟，含 agent.v1 协议与工具循环 8 项） |
+| `test.bat` / `test-integration.js` | 34 项集成测试（mock SSE + protobuf-es v2 类型模拟，含双通道工具循环与纯透传断言） |
 | `glm-proxy.bat` / `cors-proxy.js` | GLM 用户启动本地 CORS 代理 |
 | `config.json` | 用户配置（API 地址/Key/模型映射/拦截列表） |
 | `cm-runtime.js` | 注入到 Cursor 的运行时代码模板 |
@@ -181,9 +195,10 @@ GLM 用户：先运行 `node cors-proxy.js https://open.bigmodel.cn 8117`，conf
 - `temperature` / `maxTokens`：可选采样参数
 - `extraHeaders`：自定义请求头（如硅基流动等需要时）
 - `sendReasoningAsText`：true 时把思维链作为正文输出（默认映射到 thinking 字段）
-- `agentTools`：Agent 界面工具调用开关（默认 true，注入 `read_file`/`grep_search`/`list_dir` 三工具）
+- `agentTools`：工具调用总开关（默认 true）。Agent 界面注入 8 个内置工具（`read_file`/`grep_search`/`list_dir`/`write_file`/`run_terminal_cmd`/`web_fetch`/`delete_file`/`read_lints`）；Chat 界面注入 7 个原生 UI 级工具（`clientSideToolV2Call` 通道，支持 `glob_search`）；会话携带的 MCP 工具自动追加（上限 40 个）
+- `agentSystemPrompt`：自定义基础系统提示词（默认空）。系统提示词默认纯透传 Cursor 收集的原文数据、不含任何自写文案；需要角色设定时在此填写，注入系统消息最前部
 - `agentToolTimeoutMs` / `agentMaxToolRounds`：工具执行超时（默认 30000ms，超时注入占位文本不中断）与多轮上限（默认 8）
-- `agentContext`：系统提示词上下文开关（`env`/`rules`/`repo`/`layout`/`mcp`，含 `layoutMaxDepth`/`layoutMaxLines`；`mcpToolSchemas` 默认 false 控制 MCP 工具 JSON Schema 是否注入）
+- `agentContext`：系统提示词上下文开关（`env`/`rules`/`repo`/`layout`/`mcp`，含 `layoutMaxDepth`/`layoutMaxLines`；`mcpToolSchemas` 默认 false，仅控制系统提示词是否内嵌 MCP 工具 JSON Schema 全文--function calling 的工具 schema 注入不受其影响）
 
 ### 4.2 打补丁
 ```powershell
@@ -208,7 +223,7 @@ powershell -ExecutionPolicy Bypass -File .\restore.ps1        # 一键还原
 
 ## 五、验证测试结果
 
-### 5.1 集成测试（28/28 通过）
+### 5.1 集成测试（34/34 通过）
 ```
 T1   runtime active                        PASS
 T2   非目标 stream 透传                    PASS
@@ -238,7 +253,13 @@ T24  agent空回复兜底(turnEnded单次)        PASS
 T25  agent工具调用循环(Started/Exec指令/结果回传/二轮) PASS
 T26  agent工具超时降级(不中断)             PASS
 T27  requestContext全量注入系统提示词      PASS
-T28  嵌套requestContext(uma层)+工具不可调用声明 PASS
+T28  嵌套requestContext(uma层)+可调用工具声明 PASS
+T29  Chat工具循环(clientSideToolV2Call往返)  PASS
+T30  Idempotent三层包装工具调用             PASS
+T31  agent write_file(UI/exec双字段名)      PASS
+T32  agent MCP工具(mcpArgs map Value.wrap)  PASS
+T33  Chat MCP工具(CALL_MCP_TOOL+Struct)     PASS
+T34  agentSystemPrompt配置注入(纯透传入口)   PASS
 ```
 
 ### 5.2 补丁生命周期测试（4/4 通过）
@@ -261,7 +282,7 @@ T28  嵌套requestContext(uma层)+工具不可调用声明 PASS
 | 旧备份覆盖新版本 | 已防护 | `restore.ps1` v2.2 检测当前文件无补丁标记（即已被更新覆盖）时拒绝还原，需 `-Force` 确认；还原前后双重校验备份完整性 |
 | 补丁导致语法错误 | 低危 | 脚本内置 `node --check` 校验，失败自动回滚 |
 | 服务端协议变更 | 中危 | 运行时异常自动回退原通道，Cursor 不会崩溃 |
-| Agent 工具调用范围 | 已知限制 | v1.5 起支持 OpenAI function calling 工具循环（`read_file`/`grep_search`/`list_dir`，由 Cursor 客户端本地真实执行）；但 Cursor 原生 UI 级 tool_call（`client_side_tool_v2_call`）与其他 MCP/内置工具不发起（已在系统提示词中向模型声明不可调用） |
+| Agent 工具调用范围 | v1.6.0 已打通 | Agent 通道 8 内置工具（`read_file`/`grep_search`/`list_dir`/`write_file`/`run_terminal_cmd`/`web_fetch`/`delete_file`/`read_lints`）+ Chat 通道原生 UI 级 `clientSideToolV2Call`（7 工具）+ MCP 动态工具（双通道，上限 40 个），全部由 Cursor 客户端本地真实执行；工具执行失败/超时注入占位文本继续推理，不中断会话 |
 | 违反 Cursor ToS | 用户须知 | 本方案仅本地修改、使用用户自有 API Key，但可能违反服务条款，风险自担 |
 | API Key 安全 | — | Key 仅写入本地 config.json 并注入本地文件，不经过任何第三方 |
 

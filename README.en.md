@@ -5,7 +5,7 @@
 > Use **DeepSeek, GLM, Kimi, Qwen - or any OpenAI-compatible endpoint (including localhost vLLM / Ollama)** inside Cursor's native Chat, Cmd+K and Agent.
 > Patched into the editor's own process - **no proxy server to keep running, no account juggling, one-click install & restore**.
 
-![version](https://img.shields.io/badge/version-1.5.1-blue) ![tests](https://img.shields.io/badge/integration_tests-28%2F28-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![cursor](https://img.shields.io/badge/tested_on-Cursor%203.16.x-orange)
+![version](https://img.shields.io/badge/version-1.6.1-blue) ![tests](https://img.shields.io/badge/integration_tests-34%2F34-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![cursor](https://img.shields.io/badge/tested_on-Cursor%203.16.x-orange)
 
 ---
 
@@ -26,8 +26,8 @@ Every existing approach to "free / custom models in Cursor" has a structural fla
 ## What you get
 
 - **Native UI, 100% preserved** - Chat, Cmd+K inline edit and the full Agent panel keep working exactly as before; only the 5 AI-inference streams are re-routed to your model.
-- **Real Agent tool calls** - the model can call `read_file`, `grep_search`, `list_dir`; Cursor's client executes them **locally for real** and feeds results back, multi-round (up to 8 rounds).
-- **Full context injection** - OS/shell/timezone, `.cursor` rules, repo info, project layout and MCP instructions are packed into the system prompt (measured: 269 → 7,832 chars of real context in E2E).
+- **Real tool calls on every channel (v1.6.0)** - the Agent panel gets 8 built-in tools (`read_file` / `grep_search` / `list_dir` / `write_file` / `run_terminal_cmd` / `web_fetch` / `delete_file` / `read_lints`); the classic Chat panel drives Cursor's own native UI tool loop (`clientSideToolV2Call`: read/grep/glob/list/delete/terminal/web-fetch); and any MCP tools configured in Cursor are injected dynamically on both channels (cap 40). Everything is executed **locally for real** by Cursor's client and fed back, multi-round (up to 8 rounds).
+- **Full context injection, pure passthrough (v1.6.1)** - the system message is built *only* from data Cursor's client itself collects (OS/shell/timezone, `.cursor` rules, repo info, project layout, MCP instructions) plus the request's own `customSystemPrompt`, verbatim - **zero locally authored prompt text**. If there is no context at all, no system message is sent. `agentSystemPrompt` (default empty) is the single optional customization entry.
 - **Any OpenAI-compatible backend** - DeepSeek, GLM, Kimi, Qwen, or `http://localhost:11434/v1` (localhost is *not* blocked here, because requests originate inside the process, not through Cursor's validation layer).
 - **Reasoning models supported** - DeepSeek-style `reasoning_content` streams render natively; a `thinking` fallback handles non-standard providers.
 - **Safety engineering** - automatic backup before patching, `node --check` validation with automatic rollback, `product.json` SHA-256 checksums recomputed, fully idempotent install, one-click verified restore.
@@ -45,7 +45,7 @@ Cursor renderer process
         └── 64 other RPCs ────────────────────────────────────► Cursor servers (untouched)
 ```
 
-One file (`cm-runtime.js`, ~1,300 lines, zero dependencies) is appended to the workbench and wraps Cursor's Connect transport provider. Everything else in the editor is untouched.
+One file (`cm-runtime.js`, ~1,700 lines, zero dependencies) is appended to the workbench and wraps Cursor's Connect transport provider. Everything else in the editor is untouched.
 
 ## Quick Start (Windows)
 
@@ -82,7 +82,7 @@ Open Chat (Ctrl+L) or Agent, send a message - replies now come from your model.
 
 ```bash
 status.bat   # shows patch + config status
-test.bat     # 28 integration tests, no real key needed
+test.bat     # 34 integration tests, no real key needed
 ```
 
 ### A real Agent session looks like this
@@ -99,10 +99,10 @@ The searches and file reads happen locally through Cursor's own client - not emu
 | Nothing to keep running | ✅ | ✅ (scripts) | ❌ Node/Docker/tunnel | ✅ |
 | Uses **your own** model & key | ✅ any OpenAI-compat | ❌ Cursor's models | ❌ resells Cursor's | ⚠️ chat only |
 | Native Agent + Cmd+K work | ✅ | trial only | ❌ serves external apps | ❌ Agent locked |
-| Real in-IDE tool calls | ✅ read/grep/list_dir | ❌ | ❌ | ❌ |
+| Real in-IDE tool calls | ✅ 8 built-in + MCP, Chat & Agent | ❌ | ❌ | ❌ |
 | `localhost` endpoints | ✅ | n/a | n/a | ❌ blocked |
 | No account / fingerprint tricks | ✅ | ❌ machine-id, temp-mail | ❌ shared cookies | ✅ |
-| Behavior locked by tests | ✅ 28 tests | ❌ | partial | n/a |
+| Behavior locked by tests | ✅ 34 tests | ❌ | partial | n/a |
 
 ## Configuration (`config.json`)
 
@@ -114,7 +114,8 @@ The searches and file reads happen locally through Cursor's own client - not emu
 | `modelMapping` | `"*": "deepseek-v4-flash"` | Cursor model name → your model name |
 | `interceptMethods` | 5 streams | Which RPCs to re-route |
 | `blockUsageGate` | `true` | Silence the client-side "usage paused" banner |
-| `agentTools` | `true` | Enable the 3-tool Agent loop |
+| `agentTools` | `true` | Enable the tool loops (8 built-in tools on Agent, 7 native UI tools on Chat, plus dynamic MCP tools) |
+| `agentSystemPrompt` | `""` | Optional base system prompt. By default the system prompt is a pure passthrough of Cursor-collected data with no authored text; set this only if you want a role preset |
 | `agentMaxToolRounds` | `8` | Max tool-call rounds per request |
 | `agentContext` | all `true` | Which context blocks go into the system prompt |
 | `debugDump` | `false` | Dump raw requests to `cm-dump.jsonl` for debugging |
@@ -136,17 +137,17 @@ Double-click `restore.bat`. It restores the original workbench from backup (inte
 The runtime JS is platform-independent, but the installer is PowerShell + `.bat` (Windows-first). The `.ps1` scripts run under `pwsh` on macOS/Linux with path adjustments - untested, PRs welcome.
 
 **Could Cursor block this?**
-Any client-side patch can theoretically be broken by an update; that's why install is idempotent, backups are verified, and 28 tests pin the protocol behavior. Use responsibly and respect Cursor's terms - this project is for personal, educational use with **your own** API subscription.
+Any client-side patch can theoretically be broken by an update; that's why install is idempotent, backups are verified, and 34 tests pin the protocol behavior. Use responsibly and respect Cursor's terms - this project is for personal, educational use with **your own** API subscription.
 
 ## File map
 
 | File | Purpose |
 |------|---------|
-| `cm-runtime.js` | The runtime (single file, ~1,300 lines, 0 dependencies) injected into Cursor |
+| `cm-runtime.js` | The runtime (single file, ~1,700 lines, 0 dependencies) injected into Cursor |
 | `patch.ps1` / `install.bat` | Idempotent patcher with validation + rollback + checksum repair |
 | `restore.ps1` / `restore.bat` | One-click verified uninstall |
 | `status.bat` | Patch & config status |
-| `test-integration.js` / `test.bat` | 28 integration tests (mock SSE + protobuf-es v2 type mocks) |
+| `test-integration.js` / `test.bat` | 34 integration tests (mock SSE + protobuf-es v2 type mocks, dual-channel tool loops + pure-passthrough assertions) |
 | `cdp-e2e.js` | End-to-end test driving the real Cursor UI via Chrome DevTools Protocol |
 | `cors-proxy.js` / `glm-proxy.js` | Optional helpers for CORS-restricted providers (e.g. GLM) |
 | `stats.js` | Optional live stats viewer (needs `npm i ws`) |
