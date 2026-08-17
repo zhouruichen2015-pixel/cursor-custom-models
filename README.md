@@ -71,7 +71,8 @@
 
 - [ ] **Windows** 系统（已实测 Cursor 3.16.17）
 - [ ] 已安装 **[Node.js](https://nodejs.org)**（补丁脚本用它做语法校验，必装；装完记得重开命令行）
-- [ ] 已安装 **Cursor** 并能正常打开
+  - 不确定装没装？开个命令行（`Win+R` 输入 `cmd` 回车）输入 `node -v`，显示 `v20.x.x` 之类版本号就是装好了；显示"不是内部或外部命令"就没装
+- [ ] 已安装 **Cursor** 并能正常打开（用的是**默认安装路径**，即装在 C 盘 `AppData` 下--绝大多数人都是）
 
 ### 第 1 步 · 下载本项目 📥
 
@@ -178,6 +179,14 @@ cd cursor-custom-models
 | `apiKey` | 你在第 2 步申请的 Key |
 | `modelMapping` | `"*"` 兜底映射：Cursor 里随便选什么模型，实际都调用你指定的模型 |
 
+**⚠️ 三个最高频翻车点（新手必看）：**
+
+1. **JSON 不能写注释、不能多逗号**——`// 说明` 和结尾多余的 `,` 都会让文件非法。放心：安装脚本会先校验 JSON，非法时直接报错退出、**不会弄坏 Cursor**，改好再跑就行
+2. **Key 粘贴时别带上空格或引号**——正确的 Key 是一整串以 `sk-` 开头的字符，中间无空格；占位符没换掉的话补丁会**静默不生效**（日志显示 `disabled-or-unconfigured`）
+3. **保存时编码选 UTF-8**——记事本/VS Code 默认就是 UTF-8，别改成 ANSI；文件名必须是 `config.json`（别变成 `config.json.txt`，Win 默认隐藏扩展名的记得开"文件扩展名"显示）
+
+**📌 配置什么时候生效？**你的配置是**打补丁那一刻**被写进 Cursor 的（不是运行时读取）。所以：**以后每次改完 `config.json`，都必须重跑一次 `安装.bat` + 重启 Cursor**，只重启是没用的。
+
 <details>
 <summary><b>⚙️ 高级配置全表（工具调用 / 上下文 / 采样参数等，按需展开）</b></summary>
 
@@ -221,6 +230,9 @@ cd cursor-custom-models
 | 报错/现象 | 原因 | 解决 |
 |-----------|------|------|
 | `'node' 不是内部或外部命令` | 没装 Node.js 或装完没重开终端 | 去 [nodejs.org](https://nodejs.org) 装 LTS 版，重开窗口再试 |
+| `未找到任何目标文件` | Cursor 装在非默认路径（如手动装到 D 盘） | 脚本默认只找 C 盘 `AppData` 下的官方默认位置；进阶用户可手动执行 `powershell -ExecutionPolicy Bypass -File .\patch.ps1 -File "完整路径\workbench.desktop.main.js"` 逐个指定（共 3 个文件），或[提 Issue](https://github.com/zhouruichen2015-pixel/cursor-custom-models/issues) |
+| 双击 `.bat` 被 Windows 拦截 / 杀毒软件报警 | ZIP 下载的脚本带"网络标记"，被 SmartScreen 或杀软盯上 | 点"仍要运行"；或在文件右键 -> 属性 -> 勾"解除锁定"；给脚本目录加杀软白名单 |
+| `config.json 不是合法 JSON` | 文件里有注释 / 多余逗号 / 中文引号 | 按报错行号删掉注释和多余逗号；推荐用 VS Code 打开（非法位置会有红线提示） |
 | `未找到锚点` | Cursor 新版本改了代码结构 | 等待适配；期间 Cursor 不受任何影响（脚本安全退出，不改文件） |
 | `补丁已存在` | 之前打过补丁 | 正常，脚本自动从备份还原后重新应用（幂等），直接继续 |
 | PowerShell 执行策略报错 | 系统策略限制 | 双击 `安装.bat` 即可（内部已带 Bypass）；或手动执行 `powershell -ExecutionPolicy Bypass -File .\patch.ps1` |
@@ -236,11 +248,13 @@ cd cursor-custom-models
 
 想 100% 确认走的自定义通道？两招任选：
 
-- **看日志**：`Help → Toggle Developer Tools` 打开控制台，Console 里应出现
+- **看日志**：`Help -> Toggle Developer Tools` 打开控制台，Console 里应出现
   `[CustomModels] runtime active -> https://api.deepseek.com/v1`
   发消息后还会出现 `[CustomModels] intercept aiserver.v1.ChatService/StreamUnifiedChat -> deepseek-v4-flash`
 - **跑测试**：双击 **`测试.bat`**，34 项集成测试应全绿（无需真实 Key）
 - **双击 `状态.bat`**：随时查看补丁与配置状态
+
+> ⚠️ 没看到 `runtime active`、Cursor 表现跟原来一模一样？九成是这两件事：**① 改完 `config.json` 忘了重跑 `安装.bat`**（配置只在打补丁时注入，重启 Cursor 没用）；**② `apiKey` 还是占位符没换成真 Key**（此时日志会显示 `disabled-or-unconfigured`）。改好 -> 重跑安装 -> 重启，三连即可。
 
 ### 日常操作速查 📋
 
@@ -420,8 +434,20 @@ Key 只写入本地 `config.json`（已被 `.gitignore` 排除，永不提交）
 **Q: GLM 为什么还要开代理？**
 智谱官方 API 不允许浏览器直连（CORS 预检 405）。双击 `GLM代理.bat` 开本地代理即可，DeepSeek / 硅基流动 / Kimi 均可直连无需代理。
 
+**Q: 改了 `config.json`（换模型 / 换供应商）为什么没生效？**
+配置是**打补丁那一刻**写进 Cursor 的，不是运行时读取。正确姿势：改完配置 -> 重跑 `安装.bat` -> 重启 Cursor，一步都不能少。
+
+**Q: Cursor 装在 D 盘 / 自定义路径，脚本报"未找到任何目标文件"？**
+脚本默认只找官方默认位置（C 盘 `AppData`）。进阶用户可手动执行 `powershell -ExecutionPolicy Bypass -File .\patch.ps1 -File "你的路径\workbench.desktop.main.js"` 逐个指定目标文件；也欢迎提 Issue。
+
+**Q: 怎么确认当前对话用的是哪个模型？**
+开 DevTools 控制台看 `[CustomModels] intercept ... -> 模型名` 日志，或双击 `状态.bat` 查看补丁与配置状态。
+
+**Q: API Key 万一泄露了怎么办？**
+`config.json` 已被 gitignore 且不经过任何第三方，正常使用不会泄露。如果不放心/确认泄露：立刻去供应商控制台**删除旧 Key 重新生成一个**，改好 `config.json` 重跑 `安装.bat` 即可，供应商侧一键止损。
+
 **Q: 怎么彻底卸载？**
-双击 `还原.bat`，然后删除整个项目文件夹。原文件从备份恢复（含完整性校验），product.json 校验和同步修复。
+双击 `还原.bat`（自动恢复原文件 + 修复 product.json 校验和），然后删除整个项目文件夹。追求干净的还可以删掉 Cursor 安装目录下残留的 `*.js.cm-bak` 备份文件（在 `resources\app\out` 里，不删也无任何影响）。
 
 ---
 
