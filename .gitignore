@@ -1,0 +1,15 @@
+# Sensitive - never commit your real key
+config.json
+
+# Dependencies (only stats.js needs ws; Node >= 22 has built-in WebSocket)
+node_modules/
+
+# Local build artifacts & release snapshots
+release/
+*.zip
+*.log
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store

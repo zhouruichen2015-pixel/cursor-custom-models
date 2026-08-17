@@ -1,0 +1,81 @@
+# 快速开始（三步激活）
+
+> 适配 Cursor 3.16.17（Windows）| 完整文档见 `README.zh-CN.md`（中文）/ `README.md`（English）
+
+---
+
+## 第一步：填写 API Key
+
+用记事本打开 `config.json`，把 `apiKey` 换成你的真实 Key：
+
+**DeepSeek（推荐，实测直连可用；模型 ID 用官方现行名，旧名 `deepseek-chat`/`deepseek-reasoner` 已于 2026-07-24 停用）：**
+```json
+{
+  "enabled": true,
+  "baseUrl": "https://api.deepseek.com/v1",
+  "apiKey": "sk-你从平台申请的真实key",
+  "defaultModel": "deepseek-v4-flash",
+  "modelMapping": { "*": "deepseek-v4-flash", "deepseek-v4-pro": "deepseek-v4-pro" }
+}
+```
+> 可用模型：`deepseek-v4-flash`（快/便宜）、`deepseek-v4-pro`（强推理/1M 上下文）。
+
+**GLM（智谱）用户注意**：官方 API 不支持浏览器 CORS，需先开代理：
+1. 双击 `glm-proxy.bat`（保持窗口开着）
+2. `config.json` 的 `baseUrl` 改为 `http://127.0.0.1:8117/api/paas/v4`
+3. `defaultModel` 改为 `glm-4.6`
+
+**硅基流动 SiliconFlow**：`https://api.siliconflow.cn/v1`，实测直连可用。
+
+## 第二步：安装补丁
+
+双击 **`install.bat`**
+
+看到以下输出即成功：
+```
+[+] 锚点替换成功: ...
+[+] 语法校验通过
+===== 完成 =====
+```
+
+## 第三步：重启 Cursor 验证
+
+1. **完全退出** Cursor（右下角托盘图标 → Quit，确保进程全部结束）
+2. 重新启动 Cursor
+3. 打开聊天（Ctrl+L）发一条消息
+4. Help → Toggle Developer Tools → Console 应看到：
+   ```
+   [CustomModels] runtime active → https://api.deepseek.com/v1
+   [CustomModels] intercept aiserver.v1.ChatService/StreamUnifiedChat → deepseek-v4-flash
+   ```
+
+---
+
+## 常用操作
+
+| 操作 | 命令 |
+|------|------|
+| 查看状态 | 双击 `status.bat` |
+| 还原原版 | 双击 `restore.bat` |
+| 跑测试 | 双击 `test.bat`（28 项，无需真实 Key） |
+| 切换供应商 | 改 `config.json` → 再跑 `install.bat` → 重启 Cursor |
+
+## 常见问题
+
+**Q: 重启后 Console 没有 `[CustomModels]` 日志？**
+A: 没有完全退出（托盘进程仍在），或 config.json 的 key 仍是占位符（含 `your-` 会被安全禁用）。
+
+**Q: 发消息报错 upstream API 401？**
+A: API Key 无效或余额不足，检查平台控制台。
+
+**Q: Cursor 更新后失效？**
+A: 正常，更新会覆盖补丁文件。重新双击 `install.bat` 即可（幂等）。若提示"未找到锚点"说明新版大改，等待适配。
+
+**Q: 怎么彻底卸载？**
+A: 双击 `restore.bat`，然后删除整个文件夹。
+
+## 风险须知
+
+- 本方案修改 Cursor 本地文件，可能违反 Cursor 服务条款，风险自担
+- API Key 仅写入本地文件，不经过任何第三方
+- 集成聊天/内联编辑走你的自定义模型；登录、模型列表、Tab 补全等走 Cursor 原通道不受影响

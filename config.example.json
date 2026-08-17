@@ -1,0 +1,36 @@
+{
+  "enabled": true,
+  "baseUrl": "https://api.deepseek.com/v1",
+  "apiKey": "sk-YOUR-API-KEY-HERE",
+  "defaultModel": "deepseek-v4-flash",
+  "modelMapping": {
+    "*": "deepseek-v4-flash",
+    "deepseek-v4-pro": "deepseek-v4-pro"
+  },
+  "interceptMethods": [
+    "aiserver.v1.ChatService/StreamUnifiedChat",
+    "aiserver.v1.ChatService/StreamUnifiedChatWithTools",
+    "aiserver.v1.ChatService/StreamUnifiedChatWithToolsIdempotent",
+    "aiserver.v1.CmdKService/StreamCmdK",
+    "agent.v1.AgentService/Run"
+  ],
+  "temperature": null,
+  "maxTokens": null,
+  "extraHeaders": {},
+  "sendReasoningAsText": false,
+  "blockUsageGate": true,
+  "agentTools": true,
+  "agentToolTimeoutMs": 30000,
+  "agentMaxToolRounds": 8,
+  "agentContext": {
+    "env": true,
+    "rules": true,
+    "repo": true,
+    "layout": true,
+    "layoutMaxDepth": 4,
+    "layoutMaxLines": 160,
+    "mcp": true,
+    "mcpToolSchemas": false
+  },
+  "debugDump": false
+}
