@@ -1,6 +1,6 @@
 # Cursor 自定义模型集成方案（DeepSeek / GLM / 任意 OpenAI 兼容 API）
 
-[中文仓库](https://github.com/zhouruichen2015-pixel/cursor-custom-models) | [英文仓库](https://github.com/zhouruichen2015-pixel/cursor-custom-models-en)
+[中文仓库](https://github.com/zhouruichen2015-pixel/cursor-custom-models) | [English](https://github.com/zhouruichen2015-pixel/cursor-custom-models-en)
 
 ![version](https://img.shields.io/badge/version-1.6.1-blue) ![tests](https://img.shields.io/badge/integration_tests-34%2F34-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![cursor](https://img.shields.io/badge/tested_on-Cursor%203.16.x-orange)
 
