@@ -238,6 +238,8 @@ cd cursor-custom-models
 | PowerShell 执行策略报错 | 系统策略限制 | 双击 `安装.bat` 即可（内部已带 Bypass）；或手动执行 `powershell -ExecutionPolicy Bypass -File .\patch.ps1` |
 | `Syntax error`（校验失败自动回滚） | 极端情况下的注入异常 | 脚本已自动还原原文件，Cursor 不受影响；请提交 Issue 附上完整输出 |
 
+> 🙋 表里没有你的情况？[提个 Issue](https://github.com/zhouruichen2015-pixel/cursor-custom-models/issues) 把报错窗口截图发上来，比自己在网上搜半天快得多。
+
 </details>
 
 ### 第 5 步 · 重启验证 ✨（30 秒）
@@ -429,7 +431,7 @@ Key 只写入本地 `config.json`（已被 `.gitignore` 排除，永不提交）
 检查 `config.json` 的 `apiKey` 是否复制完整（无多余空格）、账户是否有余额、`defaultModel` 模型 ID 是否为供应商现行 ID。
 
 **Q: Cursor 更新后又变回原版了？**
-正常，更新会覆盖补丁文件。重新双击 `安装.bat` 即可（幂等）。若提示「未找到锚点」说明新版大改，等待适配。
+正常，更新会覆盖补丁文件。重新双击 `安装.bat` 即可（幂等）。若提示「未找到锚点」说明新版大改，[提个 Issue 催适配](https://github.com/zhouruichen2015-pixel/cursor-custom-models/issues)（附上 Cursor 版本号，通常很快跟进）。
 
 **Q: GLM 为什么还要开代理？**
 智谱官方 API 不允许浏览器直连（CORS 预检 405）。双击 `GLM代理.bat` 开本地代理即可，DeepSeek / 硅基流动 / Kimi 均可直连无需代理。
@@ -448,6 +450,12 @@ Key 只写入本地 `config.json`（已被 `.gitignore` 排除，永不提交）
 
 **Q: 怎么彻底卸载？**
 双击 `还原.bat`（自动恢复原文件 + 修复 product.json 校验和），然后删除整个项目文件夹。追求干净的还可以删掉 Cursor 安装目录下残留的 `*.js.cm-bak` 备份文件（在 `resources\app\out` 里，不删也无任何影响）。
+
+**Q: 遇到的问题上面没写到？**
+别自己憋着，[直接提 Issue](https://github.com/zhouruichen2015-pixel/cursor-custom-models/issues)，附上三样东西能让你更快得到回复：
+1. `安装.bat` / `还原.bat` 窗口的**完整输出**（截图即可）
+2. Cursor 版本号（`Help -> About` 里看）
+3. DevTools Console 里的 `[CustomModels]` 相关日志（有就贴上）
 
 ---
 
@@ -562,7 +570,7 @@ Key 只写入本地 `config.json`（已被 `.gitignore` 排除，永不提交）
 
 [![stars](https://img.shields.io/github/stars/zhouruichen2015-pixel/cursor-custom-models?style=for-the-badge)](https://github.com/zhouruichen2015-pixel/cursor-custom-models/stargazers)
 
-遇到问题？[提个 Issue](https://github.com/zhouruichen2015-pixel/cursor-custom-models/issues) · 想看英文版？[English README](https://github.com/zhouruichen2015-pixel/cursor-custom-models-en)
+遇到问题？[提个 Issue](https://github.com/zhouruichen2015-pixel/cursor-custom-models/issues)（🐛 报 Bug · 🔧 Cursor 新版没适配 · 💡 想要的功能建议，来者不拒） · 想看英文版？[English README](https://github.com/zhouruichen2015-pixel/cursor-custom-models-en)
 
 **仅限学习研究使用 · 风险自担 · [MIT License](LICENSE)**
 
