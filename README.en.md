@@ -1,6 +1,6 @@
 # Cursor Custom Models
 
-English | [中文文档](README.md)
+[中文仓库](https://github.com/zhouruichen2015-pixel/cursor-custom-models) | [英文仓库](https://github.com/zhouruichen2015-pixel/cursor-custom-models-en)
 
 > Use **DeepSeek, GLM, Kimi, Qwen - or any OpenAI-compatible endpoint (including localhost vLLM / Ollama)** inside Cursor's native Chat, Cmd+K and Agent.
 > Patched into the editor's own process - **no proxy server to keep running, no account juggling, one-click install & restore**.
@@ -52,8 +52,8 @@ One file (`cm-runtime.js`, ~1,300 lines, zero dependencies) is appended to the w
 **Step 1 - Get the files**
 
 ```bash
-git clone https://github.com/zhouruichen2015-pixel/cursor-custom-models.git
-cd cursor-custom-models
+git clone https://github.com/zhouruichen2015-pixel/cursor-custom-models-en.git
+cd cursor-custom-models-en
 ```
 
 *(or download the ZIP via the green "Code" button - no build step needed)*
@@ -119,7 +119,7 @@ The searches and file reads happen locally through Cursor's own client - not emu
 | `agentContext` | all `true` | Which context blocks go into the system prompt |
 | `debugDump` | `false` | Dump raw requests to `cm-dump.jsonl` for debugging |
 
-Full field reference: [README.md §4](README.md) (Chinese, more detailed).
+Full field reference: [中文主仓库 README §4](https://github.com/zhouruichen2015-pixel/cursor-custom-models#四配置说明configjson) (Chinese, more detailed).
 
 ## FAQ
 
