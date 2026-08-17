@@ -1,6 +1,6 @@
 # 快速开始（三步激活）
 
-> 适配 Cursor 3.16.17（Windows）| 完整文档见 `README.zh-CN.md`（中文）/ `README.md`（English）
+> 适配 Cursor 3.16.17（Windows）| 完整文档见 `README.md`（中文）/ `README.en.md`（English）
 
 ---
 
