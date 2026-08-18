@@ -106,8 +106,7 @@ cd cursor-custom-models
 
 ### 第 3 步 · 填写配置 ⚙️（复制即用）
 
-1. 在项目目录里，把 **`配置示例.json`** 复制一份，重命名为 **`config.json`**
-2. 用记事本（或 VS Code）打开 `config.json`，按下面的模板修改：
+1. 在项目目录里,用记事本（或 VS Code）打开 `config.json`，按下面的模板修改：
 
 **DeepSeek 用户直接抄这个（只改 apiKey 一行）：**
 
