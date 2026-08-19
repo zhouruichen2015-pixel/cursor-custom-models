@@ -581,6 +581,40 @@
     read_lints:       { caseName: "readLintsToolCall",  execCase: "diagnosticsArgs", argKeys: { path: "path" }, uiArgKeys: { paths: "path" } }
   };
   var AGENT_MCP_ENTRY = { caseName: "mcpToolCall", execCase: "mcpArgs" };
+  // Cursor 3.16 requires this metadata before it will execute a shell command.
+  function shellParsingResult(command) {
+    var text = String(command == null ? "" : command).trim();
+    var hasSubstitution = /(^|[^\\])(?:\$\(|`)/.test(text);
+    var hasRedirects = /(^|[^\\])(?:\d*(?:>>?|<<?)|&>>?|\|&)/.test(text);
+    var quoteCount = 0;
+    for (var qi = 0; qi < text.length; qi++) {
+      if (text.charAt(qi) === "\\") { qi++; continue; }
+      if (text.charAt(qi) === "'" || text.charAt(qi) === '"') quoteCount ^= 1;
+    }
+    var unsupported = !text || quoteCount || hasSubstitution || hasRedirects || /(^|[^\\])(?:\n|\(|\)|\{|\})/.test(text);
+    var executables = [];
+    if (!unsupported) {
+      var segments = text.split(/\s*(?:&&|\|\||;|\|)\s*/);
+      for (var si = 0; si < segments.length; si++) {
+        var segment = segments[si].trim();
+        if (!segment) { unsupported = true; break; }
+        var tokens = segment.match(/(?:[^\s"'\\]+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')+/g) || [];
+        if (!tokens.length) { unsupported = true; break; }
+        function unquoteToken(token) {
+          if (token.length >= 2 && ((token.charAt(0) === '"' && token.charAt(token.length - 1) === '"') || (token.charAt(0) === "'" && token.charAt(token.length - 1) === "'"))) return token.slice(1, -1);
+          return token;
+        }
+        var args = [];
+        for (var ti = 1; ti < tokens.length; ti++) args.push({ type: "word", value: unquoteToken(tokens[ti]) });
+        executables.push({ name: unquoteToken(tokens[0]), args: args, fullText: segment });
+      }
+    }
+    return { parsingFailed: !!unsupported, executableCommands: unsupported ? [] : executables, hasRedirects: hasRedirects, hasCommandSubstitution: hasSubstitution, redirects: [] };
+  }
+  function addShellParsingResult(ArgsT, argsPartial, command) {
+    var f = ArgsT && findFieldDeep(ArgsT, "parsingResult");
+    if (f && f.T) setField(argsPartial, f, new f.T(partialFor(f.T, shellParsingResult(command))));
+  }
   function resolveAgentTool(name, mcpTools) {
     if (Object.prototype.hasOwnProperty.call(AGENT_TOOL_MAP, name)) return { entry: AGENT_TOOL_MAP[name], mcp: null };
     if (mcpTools && mcpTools.length) {
@@ -786,6 +820,7 @@
             argsPartial[k] = v;
           }
         }
+        if (entry.execCase === "shellArgs") addShellParsingResult(argsT, argsPartial, argsObj.command);
       }
       var callPartial = {};
       if (argsF) setField(callPartial, argsF, argsT ? new argsT(argsPartial) : argsPartial);
@@ -831,6 +866,7 @@
             argsPartial[k] = v;
           }
         }
+        if (entry.execCase === "shellArgs") addShellParsingResult(ArgsT, argsPartial, argsObj.command);
       }
       var execPartial = { id: seqId, execId: callId };
       setField(execPartial, caseF, new ArgsT(argsPartial));
