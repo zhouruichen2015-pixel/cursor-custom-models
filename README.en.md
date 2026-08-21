@@ -60,7 +60,7 @@ cd cursor-custom-models-en
 
 **Step 2 - Put in your API key**
 
-Copy `config.example.json` to `config.json`, then edit one line:
+Copy `配置示例.json` (the example config) to `config.json`, then edit one line:
 
 ```json
 "apiKey": "sk-your-real-key-here"
@@ -109,7 +109,7 @@ The searches and file reads happen locally through Cursor's own client - not emu
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `baseUrl` | `https://api.deepseek.com/v1` | Any OpenAI-compatible base URL (localhost OK) |
-| `apiKey` | - | Your key. **Never committed** - only `config.example.json` ships in the repo |
+| `apiKey` | - | Your key. **Never committed** - only `配置示例.json` (the example config) ships in the repo |
 | `defaultModel` | `deepseek-v4-flash` | Model sent when no mapping matches |
 | `modelMapping` | `"*": "deepseek-v4-flash"` | Cursor model name → your model name |
 | `interceptMethods` | 5 streams | Which RPCs to re-route |

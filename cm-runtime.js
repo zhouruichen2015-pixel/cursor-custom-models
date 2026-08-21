@@ -1753,7 +1753,7 @@
 
   g.__CURSOR_CM__ = {
     active: true,
-    version: "1.6.1",
+    version: "1.6.2",
     stats: stats,
     __dump: dumpStore,
     config: {
