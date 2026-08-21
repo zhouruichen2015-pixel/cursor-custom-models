@@ -1,11 +1,18 @@
 /* ============================================================
- * Cursor Custom Models Runtime v1.6.1
+ * Cursor Custom Models Runtime v1.6.2
  * 由 patch.ps1 注入到三个文件末尾（同一份代码，各自进程内独立运行）:
  *   workbench.desktop.main.js / workbench.glass.main.js (渲染进程)
  *   extensionHostProcess.js (扩展主机 - HTTP 真正终止点)
  * 拦截 ConnectRPC 传输层，将 Chat/CmdK/Agents 请求转发到
  * 用户配置的 OpenAI 兼容 API（DeepSeek / GLM 等）
  *
+ * v1.6.2: 修复 Cursor 3.16 终端工具失效(issue #1/#2) --
+ *         3.16 本地终端执行器(cursor-agent-exec)对 agent.v1.ShellArgs
+ *         硬校验 parsingResult, 缺失时 spawnError "Parsing result is
+ *         required"; 现注入轻量保守解析元数据(简单命令/常规链式命令
+ *         产出 executableCommands, 复杂语法标记 parsingFailed 交由
+ *         Cursor 保守处理), UI 层与 execServerMessage 双点注入,
+ *         经类型内省探测字段, 3.15 及以下旧版自动跳过
  * v1.6.1: 系统提示词纯透传 -- 只有模型走自定义, 不添加任何自写文案:
  *         删除自造角色提示词与工具可调用 Note 声明, 移除行为性标题后缀,
  *         系统消息仅含 Cursor 客户端收集的原文数据(env/.cursorrules/
@@ -581,6 +588,56 @@
     read_lints:       { caseName: "readLintsToolCall",  execCase: "diagnosticsArgs", argKeys: { path: "path" }, uiArgKeys: { paths: "path" } }
   };
   var AGENT_MCP_ENTRY = { caseName: "mcpToolCall", execCase: "mcpArgs" };
+  /* ---------- ShellArgs.parsingResult 注入 (Cursor 3.16+, issue #1/#2) ----------
+   * 3.16 本地终端执行器(cursor-agent-exec)硬校验:
+   *   if (!t.parsingResult) return spawnError("Parsing result is required")
+   * 缺失时所有 run_terminal_cmd 在执行前即失败(3.15 及以下无此字段)。
+   * Chat 通道 RunTerminalCommandV2Params.parsing_result 为 opt 可选, 不受影响。
+   * 轻量保守解析: 简单命令与常规链式命令(&& || ; |)产出 executableCommands
+   * (执行器用于权限匹配/沙箱决策, UI 用于审批按钮文案);
+   * 重定向/命令替换/未闭合引号/分组等复杂语法标记 parsingFailed=true,
+   * 交由 Cursor 保守处理(合法状态, 官方自身解析失败时同样如此)。 */
+  function unquoteShellToken(tok) {
+    if (tok.length >= 2 && ((tok.charAt(0) === '"' && tok.charAt(tok.length - 1) === '"') ||
+        (tok.charAt(0) === "'" && tok.charAt(tok.length - 1) === "'"))) return tok.slice(1, -1);
+    return tok;
+  }
+  function shellParsingResult(command) {
+    var text = String(command == null ? "" : command).trim();
+    var hasSub = /(^|[^\\])(?:\$\(|`)/.test(text);
+    var hasRedir = /(^|[^\\])(?:\d*(?:>>?|<<?)|&>>?|\|&)/.test(text);
+    var quotes = 0;
+    for (var qi = 0; qi < text.length; qi++) {
+      var qc = text.charAt(qi);
+      if (qc === "\\") { qi++; continue; } // 跳过转义字符
+      if (qc === "'" || qc === '"') quotes ^= 1;
+    }
+    // 保守白名单: 换行/圆括号/花括号(子 shell、分组、进程替换)一律判为不可解析
+    var ok = !!text && !quotes && !hasSub && !hasRedir &&
+      !/(^|[^\\])(?:\n|\(|\)|\{|\})/.test(text);
+    var executables = [];
+    if (ok) {
+      var segs = text.split(/\s*(?:&&|\|\||;|\|)\s*/);
+      for (var si = 0; si < segs.length; si++) {
+        var seg = segs[si].trim();
+        // 相邻 word/引号串拼合为一个 token(--msg="a b" 不拆散), 再剥整段外层引号
+        var toks = seg.match(/(?:[^\s"'\\]+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')+/g) || [];
+        if (!toks.length) { ok = false; break; }
+        var sargs = [];
+        for (var ti = 1; ti < toks.length; ti++) sargs.push({ type: "word", value: unquoteShellToken(toks[ti]) });
+        executables.push({ name: unquoteShellToken(toks[0]), args: sargs, fullText: seg });
+      }
+    }
+    return { parsingFailed: !ok, executableCommands: ok ? executables : [],
+      hasRedirects: hasRedir, hasCommandSubstitution: hasSub, redirects: [] };
+  }
+  // 经类型内省注入(旧版 Cursor 无该字段时自动跳过, 向后兼容)
+  function addShellParsingResult(ArgsT, argsPartial, command) {
+    try {
+      var f = ArgsT && findFieldDeep(ArgsT, "parsingResult");
+      if (f && f.T) setField(argsPartial, f, new f.T(partialFor(f.T, shellParsingResult(command))));
+    } catch (e) { err("shell parsingResult build failed:", e && e.message); }
+  }
   function resolveAgentTool(name, mcpTools) {
     if (Object.prototype.hasOwnProperty.call(AGENT_TOOL_MAP, name)) return { entry: AGENT_TOOL_MAP[name], mcp: null };
     if (mcpTools && mcpTools.length) {
@@ -786,6 +843,7 @@
             argsPartial[k] = v;
           }
         }
+        if (entry.execCase === "shellArgs") addShellParsingResult(argsT, argsPartial, argsObj.command); // Cursor 3.16 UI 审批文案
       }
       var callPartial = {};
       if (argsF) setField(callPartial, argsF, argsT ? new argsT(argsPartial) : argsPartial);
@@ -831,6 +889,7 @@
             argsPartial[k] = v;
           }
         }
+        if (entry.execCase === "shellArgs") addShellParsingResult(ArgsT, argsPartial, argsObj.command); // 执行器硬校验字段
       }
       var execPartial = { id: seqId, execId: callId };
       setField(execPartial, caseF, new ArgsT(argsPartial));

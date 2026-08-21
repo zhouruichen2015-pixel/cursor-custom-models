@@ -102,7 +102,7 @@ The searches and file reads happen locally through Cursor's own client - not emu
 | Real in-IDE tool calls | ✅ 8 built-in + MCP, Chat & Agent | ❌ | ❌ | ❌ |
 | `localhost` endpoints | ✅ | n/a | n/a | ❌ blocked |
 | No account / fingerprint tricks | ✅ | ❌ machine-id, temp-mail | ❌ shared cookies | ✅ |
-| Behavior locked by tests | ✅ 34 tests | ❌ | partial | n/a |
+| Behavior locked by tests | ✅ 36 tests | ❌ | partial | n/a |
 
 ## Configuration (`config.json`)
 
@@ -137,7 +137,7 @@ Double-click `restore.bat`. It restores the original workbench from backup (inte
 The runtime JS is platform-independent, but the installer is PowerShell + `.bat` (Windows-first). The `.ps1` scripts run under `pwsh` on macOS/Linux with path adjustments - untested, PRs welcome.
 
 **Could Cursor block this?**
-Any client-side patch can theoretically be broken by an update; that's why install is idempotent, backups are verified, and 34 tests pin the protocol behavior. Use responsibly and respect Cursor's terms - this project is for personal, educational use with **your own** API subscription.
+Any client-side patch can theoretically be broken by an update; that's why install is idempotent, backups are verified, and 36 tests pin the protocol behavior (v1.6.2 added regression coverage for Cursor 3.16's terminal-tool `parsingResult` requirement). Use responsibly and respect Cursor's terms - this project is for personal, educational use with **your own** API subscription.
 
 ## File map
 
@@ -147,7 +147,7 @@ Any client-side patch can theoretically be broken by an update; that's why insta
 | `patch.ps1` / `install.bat` | Idempotent patcher with validation + rollback + checksum repair |
 | `restore.ps1` / `restore.bat` | One-click verified uninstall |
 | `status.bat` | Patch & config status |
-| `test-integration.js` / `test.bat` | 34 integration tests (mock SSE + protobuf-es v2 type mocks, dual-channel tool loops + pure-passthrough assertions) |
+| `test-integration.js` / `test.bat` | 36 integration tests (mock SSE + protobuf-es v2 type mocks, dual-channel tool loops, shell parsingResult injection + pure-passthrough assertions) |
 | `cdp-e2e.js` | End-to-end test driving the real Cursor UI via Chrome DevTools Protocol |
 | `cors-proxy.js` / `glm-proxy.js` | Optional helpers for CORS-restricted providers (e.g. GLM) |
 | `stats.js` | Optional live stats viewer (needs `npm i ws`) |
