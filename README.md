@@ -5,8 +5,8 @@
 ### 用自己的 API Key，让 Cursor 直连 DeepSeek / GLM / Kimi / 任意 OpenAI 兼容模型
 ### Agent · Cmd+K · 工具调用 · MCP 全保留，体验 100% 原生
 
-[![version](https://img.shields.io/badge/version-1.6.1-blue?style=flat-square)](https://github.com/zhouruichen2015-pixel/cursor-custom-models/releases)
-[![tests](https://img.shields.io/badge/%E9%9B%86%E6%88%90%E6%B5%8B%E8%AF%95-34%2F34_%E5%85%A8%E7%BB%BF-brightgreen?style=flat-square)](#-验证测试)
+[![version](https://img.shields.io/badge/version-1.6.2-blue?style=flat-square)](https://github.com/zhouruichen2015-pixel/cursor-custom-models/releases)
+[![tests](https://img.shields.io/badge/%E9%9B%86%E6%88%90%E6%B5%8B%E8%AF%95-36%2F36_%E5%85%A8%E7%BB%BF-brightgreen?style=flat-square)](#-验证测试)
 [![platform](https://img.shields.io/badge/platform-Windows-lightgrey?style=flat-square)](https://github.com/zhouruichen2015-pixel/cursor-custom-models)
 [![cursor](https://img.shields.io/badge/%E5%AE%9E%E6%B5%8B-Cursor_3.16.17-orange?style=flat-square)](https://github.com/zhouruichen2015-pixel/cursor-custom-models)
 [![license](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -57,7 +57,7 @@
 | IDE 内真实工具调用 | ✅ 8 内置 + MCP（双通道） | ❌ | ❌ | ❌ |
 | `localhost` 端点 | ✅ | 不适用 | 不适用 | ❌ 被封 |
 | 无账号 / 指纹伪装 | ✅ | ❌ 机器码+临时邮箱 | ❌ 共享 Cookie | ✅ |
-| 行为由测试锁定 | ✅ 34 项集成测试 | ❌ | 部分 | 不适用 |
+| 行为由测试锁定 | ✅ 36 项集成测试 | ❌ | 部分 | 不适用 |
 
 > 调研样本：cursor-free-vip（41.7k★，临时邮箱封号问题官方 README 自认）、cursor2api（~1.8k★，需常驻服务器+风控高发）、go-cursor-help（自动更新即失效）、CurryAPI 等 cursor-api 家族（ngrok 隧道/油猴依赖）、workbench 直改方案（已归档/以阉割功能为代价）。
 
@@ -106,7 +106,7 @@ cd cursor-custom-models
 
 ### 第 3 步 · 填写配置 ⚙️（复制即用）
 
-1. 在项目目录里,用记事本（或 VS Code）打开 `config.json`，按下面的模板修改：
+1. 把 `配置示例.json` 复制一份改名为 `config.json`（同一目录下），再用记事本（或 VS Code）打开 `config.json`，按下面的模板修改：
 
 **DeepSeek 用户直接抄这个（只改 apiKey 一行）：**
 
@@ -252,7 +252,7 @@ cd cursor-custom-models
 - **看日志**：`Help -> Toggle Developer Tools` 打开控制台，Console 里应出现
   `[CustomModels] runtime active -> https://api.deepseek.com/v1`
   发消息后还会出现 `[CustomModels] intercept aiserver.v1.ChatService/StreamUnifiedChat -> deepseek-v4-flash`
-- **跑测试**：双击 **`测试.bat`**，34 项集成测试应全绿（无需真实 Key）
+- **跑测试**：双击 **`测试.bat`**，36 项集成测试应全绿（无需真实 Key）
 - **双击 `状态.bat`**：随时查看补丁与配置状态
 
 > ⚠️ 没看到 `runtime active`、Cursor 表现跟原来一模一样？九成是这两件事：**① 改完 `config.json` 忘了重跑 `安装.bat`**（配置只在打补丁时注入，重启 Cursor 没用）；**② `apiKey` 还是占位符没换成真 Key**（此时日志会显示 `disabled-or-unconfigured`）。改好 -> 重跑安装 -> 重启，三连即可。
@@ -266,7 +266,7 @@ cd cursor-custom-models
 | 临时禁用 | `config.json` 改 `"enabled": false` → 重跑安装 → 重启 |
 | 彻底还原原版 | 双击 `还原.bat` |
 | 查看状态 | 双击 `状态.bat` |
-| 跑测试 | 双击 `测试.bat`（34 项，无需真实 Key） |
+| 跑测试 | 双击 `测试.bat`（36 项，无需真实 Key） |
 
 ---
 
@@ -353,7 +353,7 @@ cd cursor-custom-models
 | `安装.bat` / `patch.ps1` | **一键打补丁**（幂等，自动备份 + 语法校验 + 失败自动回滚 + product.json 校验和维护） |
 | `还原.bat` / `restore.ps1` | **一键还原原版**（版本降级保护 + 备份完整性校验） |
 | `状态.bat` | 查看补丁/配置状态 |
-| `测试.bat` / `test-integration.js` | 34 项集成测试（mock SSE + protobuf-es v2 类型模拟，含双通道工具循环与纯透传断言） |
+| `测试.bat` / `test-integration.js` | 36 项集成测试（mock SSE + protobuf-es v2 类型模拟，含双通道工具循环、shell parsingResult 注入与纯透传断言） |
 | `GLM代理.bat` / `cors-proxy.js` | GLM 用户启动本地 CORS 代理 |
 | `配置示例.json` → `config.json` | 用户配置（API 地址/Key/模型映射/拦截列表），**`config.json` 已被 gitignore，永不提交** |
 | `cm-runtime.js` | 注入到 Cursor 的运行时代码模板 |
@@ -364,12 +364,12 @@ cd cursor-custom-models
 
 ## ✅ 验证测试
 
-- **集成测试 34/34 全绿**（双击 `测试.bat` 即可复现，无需真实 Key）：覆盖 Chat/Agent/CmdK 三通道协议往返、双通道工具调用循环（含 MCP）、纯透传系统提示词断言、usage 门禁拦截、abort/return 资源清理等
+- **集成测试 36/36 全绿**（双击 `测试.bat` 即可复现，无需真实 Key）：覆盖 Chat/Agent/CmdK 三通道协议往返、双通道工具调用循环（含 MCP）、Cursor 3.16 终端工具 parsingResult 注入、纯透传系统提示词断言、usage 门禁拦截、abort/return 资源清理等
 - **补丁生命周期 4/4**：首次安装 / 状态检测 / 幂等重打 / 还原，全流程实测
 - **人工端到端**：真实 Key 下 DeepSeek 精准回复、门禁横幅消失、完整性提示消失、多轮记忆通过
 
 <details>
-<summary><b>📋 34 项测试完整清单（点击展开）</b></summary>
+<summary><b>📋 36 项测试完整清单（点击展开）</b></summary>
 
 ```
 T1   runtime active                              PASS
@@ -406,6 +406,8 @@ T31  agent write_file(UI/exec双字段名)           PASS
 T32  agent MCP工具(mcpArgs map Value.wrap)       PASS
 T33  Chat MCP工具(CALL_MCP_TOOL+Struct)          PASS
 T34  agentSystemPrompt配置注入(纯透传入口)       PASS
+T35  agent shell parsingResult注入(3.16硬校验)  PASS
+T36  复杂shell语法保守降级(parsingFailed)        PASS
 ```
 
 </details>
@@ -474,7 +476,15 @@ Key 只写入本地 `config.json`（已被 `.gitignore` 排除，永不提交）
 ## 📜 更新历史
 
 <details>
-<summary><b>v1.6.1 · 系统提示词纯透传（当前版本）—— 点击展开全部历史</b></summary>
+<summary><b>v1.6.2 · 修复 Cursor 3.16 终端工具失效（当前版本）-- 点击展开全部历史</b></summary>
+
+**v1.6.2：修复 Cursor 3.16 终端工具失效（issue #1/#2）**
+- 症状：3.16 下 Agent 的 `run_terminal_cmd` 全部在执行前报 `Parsing result is required`（连 `git status` 都不行）
+- 根因：3.16 本地终端执行器（cursor-agent-exec）对 `agent.v1.ShellArgs` 新增硬校验 `parsingResult` 字段（协议 no:8，非 opt），缺失即拒绝；3.15 及以下无此字段
+- 修复：注入轻量保守解析元数据--简单命令与常规链式命令（`&&`/`||`/`;`/`|`）产出 `executableCommands`（供权限匹配/沙箱决策/审批按钮文案），重定向/命令替换/未闭合引号等复杂语法标记 `parsingFailed` 交由 Cursor 保守处理（官方自身解析失败时同样如此）
+- 双点注入：UI 层（`toolCallStarted` 审批文案）与执行层（`execServerMessage`）均携带；经类型内省探测字段，旧版 Cursor 自动跳过
+- Chat 通道不受影响（`RunTerminalCommandV2Params.parsing_result` 为 opt 可选，仅优化文案）
+- 集成测试 36/36 通过（新增 T35 链式命令注入回归 + T36 复杂语法保守降级；已验证旧代码下 T35/T36 必然失败）
 
 **v1.6.1：系统提示词纯透传（只有模型走自定义）**
 - 删除全部运行时自写文案：自造角色提示词（"You are an AI coding agent..."）、工具可调用 Note 声明、行为性标题后缀全部移除

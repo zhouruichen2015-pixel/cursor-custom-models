@@ -308,7 +308,50 @@ const McpToolCallT = makeType("agent.v1.McpToolCall", [
   { no: 1, name: "args", kind: "message", T: McpArgsT },
   { no: 2, name: "result", kind: "message", T: McpResultT }
 ]);
+// ---------- agent.v1 Shell 通道类型 (Cursor 3.16, 字段号对齐真实 proto 复刻) ----------
+// ShellCommandParsingResult: 3.16 执行器硬校验字段(issue #1/#2), 供权限匹配/沙箱决策/UI 审批文案
+const ShellArgT = makeType("agent.v1.ShellCommandParsingResult.ExecutableCommandArg", [
+  { no: 1, name: "type", kind: "scalar" },
+  { no: 2, name: "value", kind: "scalar" }
+]);
+const ShellExeT = makeType("agent.v1.ShellCommandParsingResult.ExecutableCommand", [
+  { no: 1, name: "name", kind: "scalar" },
+  { no: 2, name: "args", kind: "message", T: ShellArgT, repeated: true },
+  { no: 3, name: "full_text", kind: "scalar" }
+]);
+const ShellRedirT = makeType("agent.v1.ShellCommandParsingResult.Redirect", [
+  { no: 1, name: "operator", kind: "scalar" },
+  { no: 2, name: "destination_fds", kind: "scalar", repeated: true },
+  { no: 3, name: "target_node_type", kind: "scalar" },
+  { no: 4, name: "target_text", kind: "scalar", opt: true }
+]);
+const ShellParsingT = makeType("agent.v1.ShellCommandParsingResult", [
+  { no: 1, name: "parsing_failed", kind: "scalar" },
+  { no: 2, name: "executable_commands", kind: "message", T: ShellExeT, repeated: true },
+  { no: 3, name: "has_redirects", kind: "scalar" },
+  { no: 4, name: "has_command_substitution", kind: "scalar" },
+  { no: 6, name: "redirects", kind: "message", T: ShellRedirT, repeated: true }
+]);
+const ShellArgsT = makeType("agent.v1.ShellArgs", [
+  { no: 1, name: "command", kind: "scalar" },
+  { no: 2, name: "working_directory", kind: "scalar", opt: true },
+  { no: 4, name: "tool_call_id", kind: "scalar" },
+  { no: 8, name: "parsing_result", kind: "message", T: ShellParsingT } // 3.16 执行器硬校验(非 opt)
+]);
+const ShellSuccessT = makeType("agent.v1.ShellSuccess", [
+  { no: 3, name: "exit_code", kind: "scalar" },
+  { no: 5, name: "stdout", kind: "scalar" },
+  { no: 10, name: "interleaved_output", kind: "scalar" }
+]);
+const ShellResultT = makeType("agent.v1.ShellResult", [
+  { no: 1, name: "success", kind: "message", T: ShellSuccessT, oneof: "result" }
+]);
+const ShellToolCallT = makeType("agent.v1.ShellToolCall", [
+  { no: 1, name: "args", kind: "message", T: ShellArgsT },
+  { no: 2, name: "result", kind: "message", T: ShellResultT }
+]);
 const AgentToolCallT = makeType("agent.v1.ToolCall", [
+  { no: 1, name: "shell_tool_call", kind: "message", T: ShellToolCallT, oneof: "tool" },
   { no: 8, name: "read_tool_call", kind: "message", T: ReadToolCallT, oneof: "tool" },
   { no: 12, name: "edit_tool_call", kind: "message", T: EditToolCallT, oneof: "tool" },
   { no: 15, name: "mcp_tool_call", kind: "message", T: McpToolCallT, oneof: "tool" }
@@ -324,6 +367,7 @@ const ToolCallCompletedT = makeType("agent.v1.ToolCallCompletedUpdate", [
 const ExecClientMessageT = makeType("agent.v1.ExecClientMessage", [
   { no: 1, name: "id", kind: "scalar" },
   { no: 15, name: "exec_id", kind: "scalar" },
+  { no: 2, name: "shell_result", kind: "message", T: ShellResultT, oneof: "message" },
   { no: 7, name: "read_result", kind: "message", T: ReadFileResultT, oneof: "message" },
   { no: 3, name: "write_result", kind: "message", T: WriteResultT, oneof: "message" },
   { no: 11, name: "mcp_result", kind: "message", T: McpResultT, oneof: "message" }
@@ -350,6 +394,7 @@ const LsArgsT = makeType("agent.v1.LsArgs", [
 const ExecServerMessageT = makeType("agent.v1.ExecServerMessage", [
   { no: 1, name: "id", kind: "scalar" },
   { no: 15, name: "exec_id", kind: "scalar" },
+  { no: 2, name: "shell_args", kind: "message", T: ShellArgsT, oneof: "message" },
   { no: 7, name: "read_args", kind: "message", T: ReadArgsT, oneof: "message" },
   { no: 5, name: "grep_args", kind: "message", T: GrepArgsT, oneof: "message" },
   { no: 8, name: "ls_args", kind: "message", T: LsArgsT, oneof: "message" },
@@ -822,7 +867,84 @@ async function runTests(T) {
     !!toolMsg && toolMsg.tool_call_id === "call_1" && toolMsg.content.includes("FILE-CONTENT-X"),
     JSON.stringify(toolInners.map((x) => x && x.case)));
 
-  // T26: agent 工具超时降级 — 客户端不回传结果 → 注入超时占位文本, 流程不中断
+  // T35: agent shell parsingResult 注入(Cursor 3.16, issue #1/#2) - 3.16 执行器
+  //      硬校验 if(!t.parsingResult) spawnError("Parsing result is required");
+  //      链式命令 git add -A && git push -> 两条 executableCommands 元数据,
+  //      UI 层(toolCallStarted)与执行层(execServerMessage)双点注入, 工具结果正常回传
+  sseQueue = [
+    [{ delta: { tool_calls: [{ index: 0, id: "call_sh", type: "function", function: { name: "run_terminal_cmd", arguments: "{\"command\":\"git add -A && git push\",\"working_directory\":\"/repo\"}" } }] } }],
+    [{ delta: { content: "已推送" } }]
+  ];
+  const shReqBase = requestBodies.length;
+  r = await wrapped.stream(svcAgent, mAgentRun, null, null, {}, (async function* () {
+    yield mkAgentReq("conv-t35", "提交并推送");
+    await new Promise((rs) => setTimeout(rs, 300)); // 等 runtime 进入等待窗口
+    yield new AgentClientMsgT({
+      message: { case: "execClientMessage", value: new ExecClientMessageT({
+        id: 1, execId: "call_sh",
+        message: { case: "shellResult", value: new ShellResultT({
+          result: { case: "success", value: new ShellSuccessT({ exitCode: 0, stdout: "PUSH-OK" }) }
+        }) }
+      }) }
+    });
+  })());
+  const shMsgs = await collect(r.message);
+  const shInners = shMsgs.map(agentInner);
+  const shStart = shInners.find((x) => x && x.case === "toolCallStarted");
+  const shExec = shMsgs.find((m) => m.message && m.message.case === "execServerMessage");
+  const shUiArgs = shStart && shStart.value.toolCall.tool.case === "shellToolCall" &&
+    shStart.value.toolCall.tool.value.args;
+  const shUiPr = shUiArgs && shUiArgs.parsingResult;
+  const shEx = shExec && shExec.message.value.message.value; // ShellArgs
+  const shPr = shEx && shEx.parsingResult;
+  const shText = shInners.filter((x) => x && x.case === "textDelta").map((x) => x.value.text).join("");
+  const shBody2 = requestBodies[shReqBase + 1] || {};
+  const shToolMsg = shBody2.messages && shBody2.messages.find((m) => m.role === "tool");
+  T("T35 agent shell parsingResult注入(Cursor 3.16硬校验)",
+    !!shUiPr && !!shPr &&
+    shUiPr instanceof ShellParsingT && shPr instanceof ShellParsingT &&
+    shEx.command === "git add -A && git push" && shEx.toolCallId === "call_sh" &&
+    shPr.parsingFailed === false && shPr.hasRedirects === false &&
+    shPr.executableCommands.length === 2 &&
+    shPr.executableCommands[0].name === "git" &&
+    shPr.executableCommands[0].fullText === "git add -A" &&
+    shPr.executableCommands[0].args.length === 2 &&
+    shPr.executableCommands[0].args[0].value === "add" &&
+    shPr.executableCommands[1].name === "git" &&
+    shPr.executableCommands[1].fullText === "git push" &&
+    shText === "已推送" &&
+    !!shToolMsg && shToolMsg.tool_call_id === "call_sh" && shToolMsg.content.includes("PUSH-OK"),
+    JSON.stringify(shPr && shPr.executableCommands.map((c) => c.name)));
+
+  // T36: 复杂 shell 语法(重定向) -> parsingFailed=true + hasRedirects=true,
+  //      executableCommands 置空, Cursor 保守处理(命令仍执行, 仅元数据降级)
+  sseQueue = [
+    [{ delta: { tool_calls: [{ index: 0, id: "call_rd", type: "function", function: { name: "run_terminal_cmd", arguments: "{\"command\":\"npm run build > build.log 2>&1\"}" } }] } }],
+    [{ delta: { content: "构建完成" } }]
+  ];
+  r = await wrapped.stream(svcAgent, mAgentRun, null, null, {}, (async function* () {
+    yield mkAgentReq("conv-t36", "构建项目");
+    await new Promise((rs) => setTimeout(rs, 300));
+    yield new AgentClientMsgT({
+      message: { case: "execClientMessage", value: new ExecClientMessageT({
+        id: 1, execId: "call_rd",
+        message: { case: "shellResult", value: new ShellResultT({
+          result: { case: "success", value: new ShellSuccessT({ exitCode: 0 }) }
+        }) }
+      }) }
+    });
+  })());
+  const rdMsgs = await collect(r.message);
+  const rdExec = rdMsgs.find((m) => m.message && m.message.case === "execServerMessage");
+  const rdPr = rdExec && rdExec.message.value.message.value.parsingResult;
+  const rdText = rdMsgs.map(agentInner).filter((x) => x && x.case === "textDelta").map((x) => x.value.text).join("");
+  T("T36 复杂shell语法保守降级(parsingFailed)",
+    !!rdPr && rdPr instanceof ShellParsingT &&
+    rdPr.parsingFailed === true && rdPr.hasRedirects === true &&
+    rdPr.executableCommands.length === 0 && rdText === "构建完成",
+    JSON.stringify(rdPr));
+
+  // T26: agent 工具超时降级 - 客户端不回传结果 -> 注入超时占位文本, 流程不中断
   const wTO = new Function(runtimeSrc.replace(JSON.stringify(cfg), JSON.stringify({ ...cfg, agentToolTimeoutMs: 250 })) + "\n;return globalThis.__CURSOR_CM__.wrap;")()(origTransport);
   sseQueue = [
     [{ delta: { tool_calls: [{ index: 0, id: "call_t", type: "function", function: { name: "read_file", arguments: "{\"path\":\"x\"}" } }] } }],

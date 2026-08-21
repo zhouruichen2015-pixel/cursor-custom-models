@@ -1,0 +1,25 @@
+name: integration-tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Syntax check all JS
+        run: |
+          node --check cm-runtime.js
+          node --check test-integration.js
+          node --check cors-proxy.js
+          node --check stats.js
+          node --check cdp-e2e.js
+      - name: Run integration tests (36)
+        run: node test-integration.js
