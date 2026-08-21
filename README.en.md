@@ -5,7 +5,7 @@
 > Use **DeepSeek, GLM, Kimi, Qwen - or any OpenAI-compatible endpoint (including localhost vLLM / Ollama)** inside Cursor's native Chat, Cmd+K and Agent.
 > Patched into the editor's own process - **no proxy server to keep running, no account juggling, one-click install & restore**.
 
-![version](https://img.shields.io/badge/version-1.6.1-blue) ![tests](https://img.shields.io/badge/integration_tests-34%2F34-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![cursor](https://img.shields.io/badge/tested_on-Cursor%203.16.x-orange)
+![version](https://img.shields.io/badge/version-1.6.2-blue) ![tests](https://img.shields.io/badge/integration_tests-36%2F36-brightgreen) ![license](https://img.shields.io/badge/license-MIT-green) ![platform](https://img.shields.io/badge/platform-Windows-lightgrey) ![cursor](https://img.shields.io/badge/tested_on-Cursor%203.16.x-orange)
 
 ---
 
@@ -82,7 +82,7 @@ Open Chat (Ctrl+L) or Agent, send a message - replies now come from your model.
 
 ```bash
 status.bat   # shows patch + config status
-test.bat     # 34 integration tests, no real key needed
+test.bat     # 36 integration tests, no real key needed
 ```
 
 ### A real Agent session looks like this
